@@ -1,0 +1,43 @@
+{
+  "name": "apollo-facial-recognition",
+  "version": "1.0.0",
+  "description": "Enterprise-Grade Facial Recognition Attendance System",
+  "private": true,
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "install:all": "npm install && cd server && npm install && cd ../web && npm install && cd ../ai && pip install -r requirements.txt",
+    "dev:server": "cd server && npm run dev",
+    "dev:web": "cd web && npm run dev",
+    "dev:ai": "cd ai && python main.py",
+    "build:web": "cd web && npm run build",
+    "start": "pm2 start pm2.ecosystem.config.js",
+    "stop": "pm2 stop all",
+    "restart": "pm2 restart all",
+    "logs": "pm2 logs",
+    "monit": "pm2 monit",
+    "setup": "node scripts/setup.js"
+  },
+  "devDependencies": {
+    "pm2": "^5.3.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0",
+    "python": ">=3.8.0"
+  },
+  "keywords": [
+    "facial-recognition",
+    "attendance",
+    "opencv",
+    "react",
+    "nodejs",
+    "supabase",
+    "websocket",
+    "offline-first"
+  ],
+  "author": "",
+  "license": "MIT"
+}
