@@ -3,25 +3,45 @@
  * Node.js Middleware Bridge for Facial Recognition Attendance System
  */
 
-require('dotenv').config({ path: '../.env' });
+require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
 
-const logger = require('./utils/logger');
-const WebSocketServer = require('./services/websocket-server');
+const express   = require('express');
+const cors      = require('cors');
+const logger    = require('./utils/logger');
+const { connectMongoDB } = require('./config/mongodb');
+const WebSocketServer    = require('./services/websocket-server');
 const OfflineBufferService = require('./services/offline-buffer');
-const SupabaseSyncService = require('./services/supabase-sync');
+const MongoDBService     = require('./services/mongodb-service');
 const AttendanceController = require('./controllers/attendance-controller');
-const EmployeeController = require('./controllers/employee-controller');
-const AdminController = require('./controllers/admin-controller');
-const { MESSAGE_TYPES } = require('./config/constants');
+const EmployeeController   = require('./controllers/employee-controller');
+const AdminController      = require('./controllers/admin-controller');
+const { MESSAGE_TYPES }    = require('./config/constants');
+
+// HTTP routes
+const authRoutes        = require('./routes/auth');
+const employeeRoutes    = require('./routes/employees');
+const attendanceRoutes  = require('./routes/attendance');
+const branchRoutes      = require('./routes/branches');
+const departmentRoutes  = require('./routes/departments');
+const scheduleRoutes    = require('./routes/schedules');
+const userRoutes        = require('./routes/users');
+const salaryRoutes      = require('./routes/salary');
+const holidayRoutes     = require('./routes/holidays');
+const correctionRoutes  = require('./routes/corrections');
+const tenantRoutes      = require('./routes/tenants');
+const payrollRoutes     = require('./routes/payroll');
+const kioskRoutes       = require('./routes/kiosk');
 
 class ApolloServer {
   constructor() {
-    this.ws = null;
-    this.offlineBuffer = null;
-    this.supabaseSync = null;
+    this.app     = express();
+    this.httpServer = null;
+    this.ws      = null;
+    this.offlineBuffer   = null;
+    this.mongoDBService  = null;
     this.attendanceController = null;
-    this.employeeController = null;
-    this.adminController = null;
+    this.employeeController   = null;
+    this.adminController      = null;
   }
 
   /**
@@ -31,43 +51,66 @@ class ApolloServer {
     try {
       logger.info('🚀 Starting Apollo Server...');
 
-      // Initialize WebSocket server
+      // 1. Connect to MongoDB
+      await connectMongoDB();
+
+      // 2. Set up Express HTTP API
+      this.app.use(cors({ origin: process.env.CORS_ORIGIN || '*' }));
+      this.app.use(express.json({ limit: '10mb' }));
+      this.app.use('/api/auth',        authRoutes);
+      this.app.use('/api/employees',   employeeRoutes);
+      this.app.use('/api/attendance',  attendanceRoutes);
+      this.app.use('/api/branches',    branchRoutes);
+      this.app.use('/api/departments', departmentRoutes);
+      this.app.use('/api/schedules',   scheduleRoutes);
+      this.app.use('/api/users',       userRoutes);
+      this.app.use('/api/salary',      salaryRoutes);
+      this.app.use('/api/holidays',    holidayRoutes);
+      this.app.use('/api/corrections', correctionRoutes);
+      this.app.use('/api/tenants',     tenantRoutes);
+      this.app.use('/api/payroll',     payrollRoutes);
+      this.app.use('/api/kiosk',       kioskRoutes);
+      this.app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date() }));
+
+      const HTTP_PORT = parseInt(process.env.HTTP_PORT || '3000');
+      this.httpServer = this.app.listen(HTTP_PORT, () => {
+        logger.info(`✅ HTTP API listening on http://localhost:${HTTP_PORT}`);
+      });
+
+      // 3. Initialize WebSocket server (AI + kiosk bridge)
       this.ws = new WebSocketServer();
       this.ws.start();
 
-      // Initialize Supabase sync service
-      this.supabaseSync = new SupabaseSyncService();
-      logger.info('✅ Supabase sync service initialized');
+      // 4. Initialize MongoDB service (replaces Supabase sync)
+      this.mongoDBService = new MongoDBService();
+      logger.info('✅ MongoDB service initialized');
 
-      // Initialize offline buffer service
+      // 5. Initialize offline buffer service (NeDB → MongoDB sync)
       this.offlineBuffer = new OfflineBufferService(this.ws);
       await this.offlineBuffer.initialize();
       logger.info('✅ Offline buffer service initialized');
 
-      // Initialize controllers
+      // 6. Initialize controllers
       this.attendanceController = new AttendanceController(
         this.offlineBuffer,
-        this.supabaseSync,
+        this.mongoDBService,
         this.ws
       );
 
       this.employeeController = new EmployeeController(
-        this.supabaseSync,
+        this.mongoDBService,
         this.ws
       );
 
       this.adminController = new AdminController(
         this.offlineBuffer,
-        this.supabaseSync,
+        this.mongoDBService,
         this.ws
       );
 
       logger.info('✅ Controllers initialized');
 
-      // Set up message routing
       this.setupMessageHandlers();
-
-      // Set up cleanup job (daily at midnight)
       this.setupDailyCleanup();
 
       logger.info('✅ Apollo Server started successfully');
@@ -198,6 +241,10 @@ class ApolloServer {
 
     if (this.ws) {
       this.ws.shutdown();
+    }
+
+    if (this.httpServer) {
+      this.httpServer.close();
     }
 
     logger.info('Apollo Server shut down successfully');

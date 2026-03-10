@@ -7,8 +7,8 @@ const logger = require('../utils/logger');
 const { MESSAGE_TYPES } = require('../config/constants');
 
 class EmployeeController {
-  constructor(supabaseSync, websocketServer) {
-    this.supabaseSync = supabaseSync;
+  constructor(mongoDBService, websocketServer) {
+    this.mongoDBService = mongoDBService;
     this.ws = websocketServer;
   }
 
@@ -22,7 +22,7 @@ class EmployeeController {
       logger.info(`Adding employee: ${data.name}`);
 
       // Add employee to Supabase
-      const result = await this.supabaseSync.addEmployee(data);
+      const result = await this.mongoDBService.addEmployee(data, data.created_by);
 
       if (!result.success) {
         throw new Error(result.error);
@@ -69,7 +69,7 @@ class EmployeeController {
       logger.info(`Updating employee: ${id}`);
 
       // Update employee in Supabase
-      const result = await this.supabaseSync.updateEmployee(id, updates);
+      const result = await this.mongoDBService.updateEmployee(id, updates);
 
       if (!result.success) {
         throw new Error(result.error);
@@ -116,7 +116,7 @@ class EmployeeController {
       logger.info(`Deleting employee: ${id}`);
 
       // Delete employee from Supabase (soft delete)
-      const result = await this.supabaseSync.deleteEmployee(id);
+      const result = await this.mongoDBService.deleteEmployee(id);
 
       if (!result.success) {
         throw new Error(result.error);
@@ -161,8 +161,9 @@ class EmployeeController {
 
       logger.info('Fetching employees');
 
-      // Get all active employees
-      const result = await this.supabaseSync.getActiveEmployees();
+      // Get all active employees for this tenant (tenantId may be null on kiosk)
+      const tenantId = message.tenantId || null;
+      const result = await this.mongoDBService.getActiveEmployees(tenantId);
 
       if (!result.success) {
         throw new Error(result.error);

@@ -7,9 +7,9 @@ const logger = require('../utils/logger');
 const { MESSAGE_TYPES } = require('../config/constants');
 
 class AdminController {
-  constructor(offlineBuffer, supabaseSync, websocketServer) {
-    this.offlineBuffer = offlineBuffer;
-    this.supabaseSync = supabaseSync;
+  constructor(offlineBuffer, mongoDBService, websocketServer) {
+    this.offlineBuffer  = offlineBuffer;
+    this.mongoDBService = mongoDBService;
     this.ws = websocketServer;
   }
 
@@ -23,7 +23,7 @@ class AdminController {
       logger.info('Fetching attendance logs');
 
       // Get attendance logs with filters
-      const result = await this.supabaseSync.getAttendanceLogs(data || {});
+      const result = await this.mongoDBService.getAttendanceLogs({ ...(data || {}), tenantId: null });
 
       if (!result.success) {
         throw new Error(result.error);

@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react'
 import { useWebSocket } from '../contexts/WebSocketContext'
 import { useAuth } from '../contexts/AuthContext'
-import { supabase } from '../config/supabase'
+import { getEmployees, getAttendance } from '../config/api'
 import { MESSAGE_TYPES } from '../config/websocket'
 
 export default function Admin() {
@@ -32,14 +32,8 @@ export default function Admin() {
 
   const loadEmployees = async () => {
     try {
-      const { data, error } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('is_active', true)
-        .order('name')
-
-      if (error) throw error
-      setEmployees(data || [])
+      const res = await getEmployees()
+      setEmployees(res?.data || [])
     } catch (err) {
       console.error('Failed to load employees:', err)
     } finally {
@@ -49,21 +43,8 @@ export default function Admin() {
 
   const loadAttendanceLogs = async () => {
     try {
-      const { data, error } = await supabase
-        .from('attendance_logs')
-        .select(`
-          *,
-          employees (
-            name,
-            email,
-            employee_code
-          )
-        `)
-        .order('timestamp', { ascending: false })
-        .limit(100)
-
-      if (error) throw error
-      setAttendanceLogs(data || [])
+      const res = await getAttendance({ limit: 100 })
+      setAttendanceLogs(res?.data || [])
     } catch (err) {
       console.error('Failed to load attendance logs:', err)
     }
@@ -207,11 +188,11 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {employees.map(employee => (
-                    <tr key={employee.id}>
-                      <td className="px-6 py-4">{employee.name}</td>
-                      <td className="px-6 py-4">{employee.email}</td>
-                      <td className="px-6 py-4">{employee.department || '-'}</td>
-                      <td className="px-6 py-4">{employee.position || '-'}</td>
+                    <tr key={employee._id}>
+                      <td className="px-6 py-4">{[employee.firstName, employee.lastName].filter(Boolean).join(' ')}</td>
+                      <td className="px-6 py-4">{employee.email || '-'}</td>
+                      <td className="px-6 py-4">{employee.departmentId?.name || '-'}</td>
+                      <td className="px-6 py-4">{employee.employment?.position || '-'}</td>
                       <td className="px-6 py-4">
                         <button className="text-blue-600 hover:underline mr-3">Edit</button>
                         <button className="text-red-600 hover:underline">Delete</button>
@@ -243,12 +224,16 @@ export default function Admin() {
                 </thead>
                 <tbody className="divide-y divide-gray-200">
                   {attendanceLogs.map(log => (
-                    <tr key={log.id}>
-                      <td className="px-6 py-4">{log.employees?.name || 'Unknown'}</td>
+                    <tr key={log._id}>
+                      <td className="px-6 py-4">
+                        {log.employeeId
+                          ? `${log.employeeId.firstName || ''} ${log.employeeId.lastName || ''}`.trim() || log.employeeId.employeeCode
+                          : 'Unknown'}
+                      </td>
                       <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString()}</td>
                       <td className="px-6 py-4">
-                        <span className={`font-semibold ${log.confidence_score >= 0.8 ? 'text-green-600' : log.confidence_score >= 0.6 ? 'text-yellow-600' : 'text-red-600'}`}>
-                          {(log.confidence_score * 100).toFixed(1)}%
+                        <span className={`font-semibold ${log.confidenceScore >= 0.8 ? 'text-green-600' : log.confidenceScore >= 0.6 ? 'text-yellow-600' : 'text-red-600'}`}>
+                          {log.confidenceScore != null ? `${(log.confidenceScore * 100).toFixed(1)}%` : '-'}
                         </span>
                       </td>
                       <td className="px-6 py-4">

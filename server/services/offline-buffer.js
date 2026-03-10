@@ -4,12 +4,14 @@
  * Implements offline-first architecture with queue-based sync
  */
 
-const Datastore = require('nedb');
+const Datastore = require('@seald-io/nedb');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const { SYNC_CONFIG, NEDB_CONFIG } = require('../config/constants');
-const { supabaseAdmin } = require('../config/supabase');
+const MongoDBService = require('./mongodb-service');
+
+const mongoService = new MongoDBService();
 
 class OfflineBufferService {
   constructor(websocketServer) {
@@ -129,40 +131,26 @@ class OfflineBufferService {
   }
 
   /**
-   * Check if Supabase is reachable
+   * Check if MongoDB is reachable
    */
   async checkConnectivity() {
     try {
-      if (!supabaseAdmin) {
-        logger.warn('Supabase admin client not configured');
-        this.isOnline = false;
-        return;
-      }
-
-      // Lightweight query to test connection
-      const { error } = await supabaseAdmin
-        .from('employees')
-        .select('id')
-        .limit(1);
+      const online = await mongoService.isOnline();
 
       const wasOnline = this.isOnline;
-      this.isOnline = !error;
+      this.isOnline = online;
 
-      // Connection restored
       if (!wasOnline && this.isOnline) {
-        logger.info('✅ Connection to Supabase restored');
+        logger.info('✅ Connection to MongoDB restored');
         this.retryAttempts = 0;
         this.triggerSync();
       }
 
-      // Connection lost
       if (wasOnline && !this.isOnline) {
-        logger.warn('❌ Connection to Supabase lost - entering offline mode');
+        logger.warn('❌ Connection to MongoDB lost - entering offline mode');
       }
 
-      // Broadcast status
       this.broadcastSyncStatus();
-
     } catch (err) {
       this.isOnline = false;
       logger.debug('Connectivity check failed:', err.message);
@@ -188,7 +176,7 @@ class OfflineBufferService {
    * Perform sync to Supabase
    */
   async performSync() {
-    if (!this.isOnline || this.isSyncing || !supabaseAdmin) {
+    if (!this.isOnline || this.isSyncing) {
       return;
     }
 
@@ -213,59 +201,39 @@ class OfflineBufferService {
           continue;
         }
 
-        // Check for duplicates using local_id
-        const { data: existing, error: checkError } = await supabaseAdmin
-          .from('attendance_logs')
-          .select('id')
-          .eq('local_id', localId)
-          .maybeSingle();
+        // Upsert to MongoDB (idempotent via localId)
+        const result = await mongoService.insertAttendanceLog({
+          employeeId:      localRecord.employee_id,
+          tenantId:        localRecord.tenant_id || null,
+          branchId:        localRecord.branch_id || null,
+          timestamp:       new Date(localRecord.timestamp),
+          type:            localRecord.type || 'IN',
+          source:          'face_kiosk',
+          confidenceScore: localRecord.confidence_score,
+          localId
+        });
 
-        if (checkError && checkError.code !== 'PGRST116') { // PGRST116 = no rows
-          throw checkError;
-        }
-
-        if (existing) {
-          logger.info(`Record ${localId} already synced, marking as complete`);
-          await this.markAsSynced(localId);
-          successCount++;
-          continue;
-        }
-
-        // Insert to Supabase
-        const { data, error } = await supabaseAdmin
-          .from('attendance_logs')
-          .insert({
-            employee_id: localRecord.employee_id,
-            timestamp: localRecord.timestamp,
-            confidence_score: localRecord.confidence_score,
-            synced: true,
-            synced_at: new Date().toISOString(),
-            local_id: localId
-          })
-          .select()
-          .single();
-
-        if (error) {
-          throw error;
+        if (!result.success) {
+          throw new Error(result.error);
         }
 
         // Mark as synced in local DB
-        await this.markAsSynced(localId, data.id);
+        await this.markAsSynced(localId, result.data._id.toString());
         successCount++;
 
-        logger.info(`✅ Synced ${localId} -> ${data.id}`);
+        logger.info(`✅ Synced ${localId} -> ${result.data._id}`);
 
         // Broadcast to web clients
         this.ws.broadcastToWebClients({
           type: 'ATTENDANCE_LOGGED',
           timestamp: new Date().toISOString(),
           data: {
-            id: data.id,
-            employee_id: localRecord.employee_id,
-            employee_name: localRecord.employee_name,
-            confidence_score: localRecord.confidence_score,
-            timestamp: localRecord.timestamp,
-            synced: true
+            id:              result.data._id,
+            employee_id:     localRecord.employee_id,
+            employee_name:   localRecord.employee_name,
+            confidence_score:localRecord.confidence_score,
+            timestamp:       localRecord.timestamp,
+            synced:          true
           }
         });
 
