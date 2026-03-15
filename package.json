@@ -1,5 +1,5 @@
 {
-  "name": "apollo-facial-recognition",
+  "name": "de-webnet-facial-recognition",
   "version": "1.0.0",
   "description": "Enterprise-Grade Facial Recognition Attendance System",
   "private": true,
@@ -18,7 +18,11 @@
     "restart": "pm2 restart all",
     "logs": "pm2 logs",
     "monit": "pm2 monit",
-    "setup": "node scripts/setup.js"
+    "setup": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1",
+    "setup:windows:skip-install": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -SkipInstall",
+    "setup:windows:mock": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -IncludeMockData",
+    "setup:windows:start": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -StartServices"
   },
   "devDependencies": {
     "pm2": "^5.3.0"

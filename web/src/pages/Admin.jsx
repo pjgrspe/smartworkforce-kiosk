@@ -67,39 +67,39 @@ export default function Admin() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gray-100 flex items-center justify-center">
-        <div className="text-2xl text-gray-600">Loading...</div>
+      <div className="min-h-screen bg-navy-900 flex items-center justify-center">
+        <div className="text-sm text-navy-300 uppercase tracking-wider">Loading...</div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-navy-900 text-navy-100">
       {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+      <header className="bg-navy-800 border-b border-navy-500">
+        <div className="max-w-7xl mx-auto px-6 py-3.5">
           <div className="flex justify-between items-center">
-            <h1 className="text-3xl font-bold text-gray-900">Apollo Admin Panel</h1>
+            <h1 className="text-sm font-semibold uppercase tracking-wider text-navy-50">DE WEBNET Admin Panel</h1>
 
             <div className="flex items-center gap-4">
               {/* System Status Indicators */}
               <div className="flex gap-3">
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${systemStatus.ai_engine === 'connected' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                  <div className={`w-2 h-2 rounded-full ${systemStatus.ai_engine === 'connected' ? 'bg-green-600' : 'bg-red-600'} animate-pulse`} />
-                  <span className="text-sm font-medium">AI</span>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md border ${systemStatus.ai_engine === 'connected' ? 'bg-signal-success/10 text-signal-success border-signal-success/25' : 'bg-signal-danger/10 text-signal-danger border-signal-danger/25'}`}>
+                  <div className={`w-2 h-2 rounded-full ${systemStatus.ai_engine === 'connected' ? 'bg-signal-success' : 'bg-signal-danger'} animate-pulse`} />
+                  <span className="text-2xs font-semibold uppercase tracking-wider">AI</span>
                 </div>
 
-                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${syncStatus.online ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                  <div className={`w-2 h-2 rounded-full ${syncStatus.online ? 'bg-green-600' : 'bg-yellow-600'} animate-pulse`} />
-                  <span className="text-sm font-medium">Database</span>
+                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-md border ${syncStatus.online ? 'bg-signal-success/10 text-signal-success border-signal-success/25' : 'bg-signal-warning/10 text-signal-warning border-signal-warning/25'}`}>
+                  <div className={`w-2 h-2 rounded-full ${syncStatus.online ? 'bg-signal-success' : 'bg-signal-warning'} animate-pulse`} />
+                  <span className="text-2xs font-semibold uppercase tracking-wider">Database</span>
                 </div>
               </div>
 
-              <span className="text-gray-600">{user?.email}</span>
+              <span className="text-navy-300 text-xs">{user?.email}</span>
 
               <button
                 onClick={handleSignOut}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                className="px-4 py-2 bg-signal-danger text-white rounded-md hover:opacity-90 text-xs font-medium"
               >
                 Sign Out
               </button>
@@ -107,22 +107,22 @@ export default function Admin() {
           </div>
 
           {/* Tabs */}
-          <div className="mt-6 flex gap-4">
+          <div className="mt-3 flex gap-1">
             <button
               onClick={() => setActiveTab('dashboard')}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+              className={`px-4 h-7 rounded-md text-xs font-medium uppercase tracking-wider transition-colors duration-80 ${activeTab === 'dashboard' ? 'bg-accent text-white' : 'text-navy-300 hover:text-navy-100 hover:bg-navy-700'}`}
             >
               Dashboard
             </button>
             <button
               onClick={() => setActiveTab('employees')}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'employees' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+              className={`px-4 h-7 rounded-md text-xs font-medium uppercase tracking-wider transition-colors duration-80 ${activeTab === 'employees' ? 'bg-accent text-white' : 'text-navy-300 hover:text-navy-100 hover:bg-navy-700'}`}
             >
               Employees ({employees.length})
             </button>
             <button
               onClick={() => setActiveTab('attendance')}
-              className={`px-4 py-2 rounded-lg font-medium ${activeTab === 'attendance' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700'}`}
+              className={`px-4 h-7 rounded-md text-xs font-medium uppercase tracking-wider transition-colors duration-80 ${activeTab === 'attendance' ? 'bg-accent text-white' : 'text-navy-300 hover:text-navy-100 hover:bg-navy-700'}`}
             >
               Attendance Logs
             </button>
@@ -131,18 +131,18 @@ export default function Admin() {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-6 py-6">
         {/* Dashboard Tab */}
         {activeTab === 'dashboard' && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Total Employees</h3>
-              <p className="text-4xl font-bold text-blue-600">{employees.length}</p>
+            <div className="table-shell p-6">
+              <h3 className="label-caps mb-2">Total Employees</h3>
+              <p className="text-4xl font-bold text-accent-400">{employees.length}</p>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Today's Check-ins</h3>
-              <p className="text-4xl font-bold text-green-600">
+            <div className="table-shell p-6">
+              <h3 className="label-caps mb-2">Today's Check-ins</h3>
+              <p className="text-4xl font-bold text-signal-success">
                 {attendanceLogs.filter(log => {
                   const today = new Date().toDateString()
                   return new Date(log.timestamp).toDateString() === today
@@ -150,13 +150,13 @@ export default function Admin() {
               </p>
             </div>
 
-            <div className="bg-white p-6 rounded-lg shadow">
-              <h3 className="text-lg font-semibold text-gray-700 mb-2">Pending Sync</h3>
-              <p className="text-4xl font-bold text-yellow-600">{syncStatus.pending_sync_count || 0}</p>
+            <div className="table-shell p-6">
+              <h3 className="label-caps mb-2">Pending Sync</h3>
+              <p className="text-4xl font-bold text-signal-warning">{syncStatus.pending_sync_count || 0}</p>
               {syncStatus.pending_sync_count > 0 && (
                 <button
                   onClick={handleForceSync}
-                  className="mt-4 px-4 py-2 bg-yellow-600 text-white rounded hover:bg-yellow-700 text-sm"
+                  className="mt-4 px-4 py-2 bg-signal-warning text-navy-950 rounded-md hover:opacity-90 text-xs font-medium"
                 >
                   Force Sync
                 </button>
@@ -167,35 +167,35 @@ export default function Admin() {
 
         {/* Employees Tab */}
         {activeTab === 'employees' && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b flex justify-between items-center">
-              <h2 className="text-xl font-semibold">Employee List</h2>
-              <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+          <div className="table-shell">
+            <div className="p-6 border-b border-navy-500 flex justify-between items-center bg-navy-800">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-navy-100">Employee List</h2>
+              <button className="px-4 py-2 bg-accent text-white rounded-md hover:bg-accent-400 text-xs font-medium">
                 Add Employee
               </button>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
+              <table className="table-base">
+                <thead className="table-head-row">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Department</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Position</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                    <th className="table-th">Name</th>
+                    <th className="table-th">Email</th>
+                    <th className="table-th">Department</th>
+                    <th className="table-th">Position</th>
+                    <th className="table-th">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {employees.map(employee => (
-                    <tr key={employee._id}>
-                      <td className="px-6 py-4">{[employee.firstName, employee.lastName].filter(Boolean).join(' ')}</td>
-                      <td className="px-6 py-4">{employee.email || '-'}</td>
-                      <td className="px-6 py-4">{employee.departmentId?.name || '-'}</td>
-                      <td className="px-6 py-4">{employee.employment?.position || '-'}</td>
-                      <td className="px-6 py-4">
-                        <button className="text-blue-600 hover:underline mr-3">Edit</button>
-                        <button className="text-red-600 hover:underline">Delete</button>
+                <tbody>
+                  {employees.map((employee, i) => (
+                    <tr key={employee._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                      <td className="px-4 py-2.5">{[employee.firstName, employee.lastName].filter(Boolean).join(' ')}</td>
+                      <td className="px-4 py-2.5 text-navy-300">{employee.email || '-'}</td>
+                      <td className="px-4 py-2.5 text-navy-300">{employee.departmentId?.name || '-'}</td>
+                      <td className="px-4 py-2.5 text-navy-300">{employee.employment?.position || '-'}</td>
+                      <td className="px-4 py-2.5">
+                        <button className="text-accent hover:text-accent-200 mr-3 text-2xs">Edit</button>
+                        <button className="text-signal-danger hover:opacity-90 text-2xs">Delete</button>
                       </td>
                     </tr>
                   ))}
@@ -207,40 +207,40 @@ export default function Admin() {
 
         {/* Attendance Tab */}
         {activeTab === 'attendance' && (
-          <div className="bg-white rounded-lg shadow">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-semibold">Attendance Logs</h2>
+          <div className="table-shell">
+            <div className="p-6 border-b border-navy-500 bg-navy-800">
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-navy-100">Attendance Logs</h2>
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead className="bg-gray-50">
+              <table className="table-base">
+                <thead className="table-head-row">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Employee</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Confidence</th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="table-th">Employee</th>
+                    <th className="table-th">Time</th>
+                    <th className="table-th">Confidence</th>
+                    <th className="table-th">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {attendanceLogs.map(log => (
-                    <tr key={log._id}>
-                      <td className="px-6 py-4">
+                <tbody>
+                  {attendanceLogs.map((log, i) => (
+                    <tr key={log._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                      <td className="px-4 py-2.5">
                         {log.employeeId
                           ? `${log.employeeId.firstName || ''} ${log.employeeId.lastName || ''}`.trim() || log.employeeId.employeeCode
                           : 'Unknown'}
                       </td>
-                      <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString()}</td>
-                      <td className="px-6 py-4">
-                        <span className={`font-semibold ${log.confidenceScore >= 0.8 ? 'text-green-600' : log.confidenceScore >= 0.6 ? 'text-yellow-600' : 'text-red-600'}`}>
+                      <td className="px-4 py-2.5 text-navy-300">{new Date(log.timestamp).toLocaleString()}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`font-semibold ${log.confidenceScore >= 0.8 ? 'text-signal-success' : log.confidenceScore >= 0.6 ? 'text-signal-warning' : 'text-signal-danger'}`}>
                           {log.confidenceScore != null ? `${(log.confidenceScore * 100).toFixed(1)}%` : '-'}
                         </span>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-4 py-2.5">
                         {log.synced ? (
-                          <span className="text-green-600">✓ Synced</span>
+                          <span className="text-signal-success text-2xs">Synced</span>
                         ) : (
-                          <span className="text-yellow-600">⏳ Pending</span>
+                          <span className="text-signal-warning text-2xs">Pending</span>
                         )}
                       </td>
                     </tr>

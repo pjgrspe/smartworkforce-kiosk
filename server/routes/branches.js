@@ -8,7 +8,12 @@ router.use(authenticate);
 // GET /api/branches
 router.get('/', async (req, res) => {
   try {
-    const branches = await Branch.find({ tenantId: req.user.tenantId, isActive: true })
+    const filter = { tenantId: req.user.tenantId, isActive: true };
+    if (req.user.role !== 'super_admin' && req.user.branchId) {
+      filter._id = req.user.branchId;
+    }
+
+    const branches = await Branch.find(filter)
       .sort('name').lean();
     return res.json({ data: branches });
   } catch (err) {
@@ -17,7 +22,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/branches
-router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
+router.post('/', authorize('super_admin'), async (req, res) => {
   try {
     const branch = await new Branch({ ...req.body, tenantId: req.user.tenantId }).save();
     return res.status(201).json({ data: branch.toObject() });
@@ -27,7 +32,7 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 });
 
 // PATCH /api/branches/:id
-router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
+router.patch('/:id', authorize('super_admin'), async (req, res) => {
   try {
     const branch = await Branch.findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },
@@ -42,7 +47,7 @@ router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), asy
 });
 
 // DELETE /api/branches/:id  (soft delete)
-router.delete('/:id', authorize('super_admin', 'client_admin'), async (req, res) => {
+router.delete('/:id', authorize('super_admin'), async (req, res) => {
   try {
     await Branch.findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },

@@ -38,7 +38,7 @@ router.post('/', authorize('super_admin'), async (req, res) => {
 });
 
 // PATCH /api/tenants/current — update own tenant settings
-router.patch('/current', authorize('super_admin', 'client_admin'), async (req, res) => {
+router.patch('/current', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
     const tenant = await Tenant.findByIdAndUpdate(
       req.user.tenantId,

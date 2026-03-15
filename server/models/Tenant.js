@@ -34,6 +34,25 @@ const tenantSchema = new mongoose.Schema({
     nightDiffWindow: {
       start: { type: String, default: '22:00' },
       end:   { type: String, default: '06:00' }
+    },
+    payslip: {
+      companyDisplayName: { type: String, trim: true, default: '' },
+      headerSubtitle: { type: String, trim: true, default: 'Payroll Payslip' },
+      companyAddressLine: { type: String, trim: true, default: '' },
+      footerNote: {
+        type: String,
+        trim: true,
+        default: 'This document is system-generated and valid without a physical signature.'
+      },
+      signatories: {
+        preparedByName: { type: String, trim: true, default: 'Payroll Officer' },
+        preparedByTitle: { type: String, trim: true, default: 'Prepared By' },
+        reviewedByName: { type: String, trim: true, default: 'HR Manager' },
+        reviewedByTitle: { type: String, trim: true, default: 'Reviewed By' },
+        approvedByName: { type: String, trim: true, default: 'Authorized Signatory' },
+        approvedByTitle: { type: String, trim: true, default: 'Approved By' },
+        receivedByLabel: { type: String, trim: true, default: 'Received By Employee' }
+      }
     }
   },
 

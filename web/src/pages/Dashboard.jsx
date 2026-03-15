@@ -1,196 +1,484 @@
-/**
- * Dashboard Page — summary statistics and quick-access cards.
+﻿/**
+ * Dashboard - high-density executive summary.
+ * Layout: page header strip -> KPI rail -> 12-col grid (7 + 5).
+ * Design: data-forward, monochromatic, tabular numbers.
  */
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { getEmployees, getAttendance, getCorrections, getPayrollRuns } from '../config/api'
+import { useAuth } from '../contexts/AuthContext'
+import {
+  getEmployees, getAttendance, getCorrections, getPayrollRuns,
+  getMyEmployeeProfile, getMyAttendance, getMyCorrections, createMyCorrection, getMyPayslips,
+} from '../config/api'
+import { fmtDate, fmtTime, fmtDateRange, fmtPeso, fmtPesoShort, employeeName } from '../lib/format'
+import Badge from '../components/ui/Badge'
+import Button from '../components/ui/Button'
+import { Input, Textarea } from '../components/ui/Input'
+import Spinner from '../components/ui/Spinner'
 
-function StatCard({ label, value, sub, color = 'blue', onClick }) {
-  const colors = {
-    blue:   'bg-blue-50  border-blue-200  text-blue-700',
-    green:  'bg-green-50 border-green-200 text-green-700',
-    yellow: 'bg-yellow-50 border-yellow-200 text-yellow-700',
-    red:    'bg-red-50   border-red-200   text-red-700',
-    purple: 'bg-purple-50 border-purple-200 text-purple-700',
-  }
+// KPI tile
+function KPI({ label, value, sub, accent, href }) {
+  const nav = useNavigate()
   return (
     <div
-      onClick={onClick}
-      className={`border rounded-xl p-5 cursor-pointer hover:shadow-md transition-shadow ${colors[color]}`}
+      onClick={() => href && nav(href)}
+      className={`
+        relative flex flex-col justify-between p-4 border rounded-lg cursor-pointer
+        bg-navy-700 hover:bg-navy-600 transition-colors duration-80 group overflow-hidden
+        ${accent ? 'border-l-[2px] border-l-accent border-t-navy-500 border-r-navy-500 border-b-navy-500' : 'border-navy-500'}
+      `}
     >
-      <p className="text-sm font-medium opacity-70">{label}</p>
-      <p className="text-4xl font-bold mt-1">{value ?? '—'}</p>
-      {sub && <p className="text-xs mt-1 opacity-60">{sub}</p>}
+      <p className="label-caps mb-2">{label}</p>
+      <p className="text-[28px] font-bold tabular text-navy-50 leading-none">
+        {value ?? <span className="text-navy-500 font-normal">—</span>}
+      </p>
+      {sub && <p className="text-2xs text-navy-300 mt-1.5 font-mono">{sub}</p>}
+      {/* Hover underline reveal */}
+      <span className="absolute inset-x-0 bottom-0 h-px bg-accent
+                       scale-x-0 group-hover:scale-x-100 transition-transform duration-120 origin-left" />
     </div>
   )
 }
 
-export default function Dashboard() {
-  const navigate = useNavigate()
-  const [employees, setEmployees]     = useState([])
-  const [todayLogs, setTodayLogs]     = useState([])
-  const [pendingCorrections, setPending] = useState(0)
-  const [payrollRuns, setPayrollRuns] = useState([])
-  const [recentLogs, setRecentLogs]   = useState([])
-  const [loading, setLoading]         = useState(true)
+// Panel shell
+function Panel({ title, action, actionHref, children }) {
+  const nav = useNavigate()
+  return (
+    <div className="flex flex-col bg-navy-700 border border-navy-500 rounded-lg overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-navy-500">
+        <h3 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
+          {title}
+        </h3>
+        {action && (
+          <button
+            onClick={() => nav(actionHref)}
+            className="text-2xs text-navy-400 hover:text-accent uppercase tracking-wider
+                       transition-colors duration-80"
+          >
+            {action} →
+          </button>
+        )}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// Punch type text
+function PunchType({ type }) {
+  const cls = {
+    IN:    'text-signal-success',
+    OUT:   'text-signal-danger',
+    BREAK: 'text-signal-warning',
+  }
+  return (
+    <span className={`font-mono text-2xs font-semibold uppercase tabular ${cls[type] ?? 'text-navy-400'}`}>
+      {type}
+    </span>
+  )
+}
+
+function EmployeeDashboard() {
+  const [employee, setEmployee] = useState(null)
+  const [attendance, setAttendance] = useState([])
+  const [corrections, setCorrections] = useState([])
+  const [payslips, setPayslips] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [submitting, setSubmitting] = useState(false)
+  const [feedback, setFeedback] = useState({ text: '', ok: true })
+  const [form, setForm] = useState({ date: '', reason: '', notes: '' })
+
+  const loadSelfService = () => {
+    setLoading(true)
+    Promise.all([
+      getMyEmployeeProfile().catch(() => ({ data: null })),
+      getMyAttendance({ limit: 12 }).catch(() => ({ data: [] })),
+      getMyCorrections().catch(() => ({ data: [] })),
+      getMyPayslips().catch(() => ({ data: [] })),
+    ]).then(([profileRes, attendanceRes, correctionRes, payslipRes]) => {
+      setEmployee(profileRes?.data || null)
+      setAttendance(attendanceRes?.data || [])
+      setCorrections(correctionRes?.data || [])
+      setPayslips(payslipRes?.data || [])
+    }).finally(() => setLoading(false))
+  }
 
   useEffect(() => {
-    Promise.all([
-      getEmployees().catch(() => ({ data: [] })),
-      getAttendance({ limit: 200 }).catch(() => ({ data: [] })),
-      getCorrections({ status: 'pending' }).catch(() => ({ data: [] })),
-      getPayrollRuns().catch(() => ({ data: [] }))
-    ]).then(([empRes, attRes, corrRes, payRes]) => {
-      const emps = empRes?.data || []
-      const logs = attRes?.data || []
-      const today = new Date().toDateString()
-
-      setEmployees(emps)
-      setTodayLogs(logs.filter(l => new Date(l.timestamp).toDateString() === today))
-      setPending((corrRes?.data || []).length)
-      setPayrollRuns(payRes?.data || [])
-      setRecentLogs(logs.slice(0, 10))
-    }).finally(() => setLoading(false))
+    loadSelfService()
   }, [])
 
-  const lateToday = todayLogs.filter(l => l.exceptions?.isLate).length
-  const presentToday = new Set(todayLogs.filter(l => l.type === 'IN').map(l =>
-    typeof l.employeeId === 'object' ? l.employeeId._id : l.employeeId
-  )).size
+  const submitCorrection = async () => {
+    if (!form.date || !form.reason.trim()) {
+      setFeedback({ text: 'Date and reason are required.', ok: false })
+      return
+    }
+
+    setSubmitting(true)
+    setFeedback({ text: '', ok: true })
+    try {
+      await createMyCorrection(form)
+      setForm({ date: '', reason: '', notes: '' })
+      setFeedback({ text: 'Correction request submitted.', ok: true })
+      loadSelfService()
+    } catch (error) {
+      setFeedback({ text: error.message, ok: false })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const presentToday = attendance.some((log) => {
+    const today = new Date().toDateString()
+    return log.type === 'IN' && new Date(log.timestamp).toDateString() === today
+  })
+  const pendingCorrections = corrections.filter((item) => item.status === 'pending').length
+  const latestPayslip = payslips[0]?.payslip || null
+  const employmentStatus = employee?.employment?.status || 'inactive'
 
   if (loading) {
     return (
-      <div className="p-8 flex items-center justify-center h-64">
-        <div className="text-gray-500 text-lg">Loading dashboard…</div>
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <p className="label-caps">Loading...</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <StatCard
-          label="Total Employees"
-          value={employees.length}
-          color="blue"
-          onClick={() => navigate('/employees')}
-        />
-        <StatCard
-          label="Present Today"
-          value={presentToday}
-          sub={`of ${employees.length} active`}
-          color="green"
-          onClick={() => navigate('/attendance')}
-        />
-        <StatCard
-          label="Late Today"
-          value={lateToday}
-          color="yellow"
-          onClick={() => navigate('/attendance')}
-        />
-        <StatCard
-          label="Pending Corrections"
-          value={pendingCorrections}
-          color={pendingCorrections > 0 ? 'red' : 'blue'}
-          onClick={() => navigate('/corrections')}
-        />
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex items-center justify-between px-6 py-3.5 border-b border-navy-500 bg-navy-800">
+        <div>
+          <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">My Workspace</h1>
+          <p className="text-2xs text-navy-400 mt-0.5 font-mono">
+            {[employee?.firstName, employee?.lastName].filter(Boolean).join(' ') || 'Employee self-service'}
+          </p>
+        </div>
+        <Badge variant={employmentStatus === 'active' ? 'success' : 'neutral'}>{employmentStatus}</Badge>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Recent Attendance */}
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-4 border-b flex justify-between items-center">
-            <h3 className="font-semibold text-gray-800">Recent Attendance</h3>
-            <button
-              onClick={() => navigate('/attendance')}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              View all →
-            </button>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 text-left">
-                  <th className="px-4 py-2 text-xs text-gray-500 font-medium">Employee</th>
-                  <th className="px-4 py-2 text-xs text-gray-500 font-medium">Time</th>
-                  <th className="px-4 py-2 text-xs text-gray-500 font-medium">Type</th>
-                  <th className="px-4 py-2 text-xs text-gray-500 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {recentLogs.length === 0 ? (
-                  <tr><td colSpan={4} className="px-4 py-6 text-center text-gray-400">No logs yet</td></tr>
-                ) : recentLogs.map(log => {
-                  const emp = log.employeeId
-                  const name = typeof emp === 'object'
-                    ? `${emp.firstName} ${emp.lastName}`
-                    : emp
-                  return (
-                    <tr key={log._id} className="hover:bg-gray-50">
-                      <td className="px-4 py-2 font-medium">{name}</td>
-                      <td className="px-4 py-2 text-gray-500">
-                        {new Date(log.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
-                      </td>
-                      <td className="px-4 py-2">
-                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                          log.type === 'IN'  ? 'bg-green-100 text-green-700' :
-                          log.type === 'OUT' ? 'bg-red-100 text-red-700' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>{log.type}</span>
-                      </td>
-                      <td className="px-4 py-2">
-                        {log.exceptions?.isLate && (
-                          <span className="px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700">Late</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 pb-0">
+        <KPI label="Today" value={presentToday ? 'Present' : 'No In Log'} sub={employee?.employeeCode || 'No employee code'} accent />
+        <KPI label="Pending Requests" value={pendingCorrections} sub="Attendance corrections" />
+        <KPI label="Latest Net Pay" value={latestPayslip ? fmtPeso(latestPayslip.netPay) : '—'} sub={payslips[0] ? fmtDateRange(payslips[0].cutoffStart, payslips[0].cutoffEnd) : 'No approved payslips'} />
+        <KPI label="Branch" value={employee?.branchId?.name || 'Assigned'} sub={employee?.employment?.position || 'No position set'} />
+      </div>
 
-        {/* Payroll Runs */}
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-4 border-b flex justify-between items-center">
-            <h3 className="font-semibold text-gray-800">Recent Payroll Runs</h3>
-            <button
-              onClick={() => navigate('/payroll/runs')}
-              className="text-sm text-blue-600 hover:underline"
-            >
-              View all →
-            </button>
-          </div>
-          <div className="p-4 space-y-3">
-            {payrollRuns.length === 0 ? (
-              <div className="text-center text-gray-400 py-8">No payroll runs yet</div>
-            ) : payrollRuns.slice(0, 5).map(run => (
-              <div key={run._id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+      <div className="flex-1 overflow-auto p-5 pt-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-[1600px]">
+          <div className="lg:col-span-4 flex flex-col gap-4">
+            <Panel title="Profile">
+              <div className="px-4 py-4 space-y-3 text-sm text-navy-200">
                 <div>
-                  <p className="text-sm font-medium text-gray-800">
-                    {new Date(run.cutoffStart).toLocaleDateString()} – {new Date(run.cutoffEnd).toLocaleDateString()}
-                  </p>
-                  <p className="text-xs text-gray-500 mt-0.5">
-                    Net ₱{(run.totalNet || 0).toLocaleString()}
-                  </p>
+                  <p className="label-caps mb-1">Employee Code</p>
+                  <p className="text-navy-50 font-medium">{employee?.employeeCode || '—'}</p>
                 </div>
-                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                  run.status === 'finalized'         ? 'bg-green-100 text-green-700' :
-                  run.status === 'approved'          ? 'bg-blue-100 text-blue-700' :
-                  run.status === 'pending_approval'  ? 'bg-yellow-100 text-yellow-700' :
-                  'bg-gray-100 text-gray-600'
-                }`}>{run.status}</span>
+                <div>
+                  <p className="label-caps mb-1">Position</p>
+                  <p>{employee?.employment?.position || '—'}</p>
+                </div>
+                <div>
+                  <p className="label-caps mb-1">Date Hired</p>
+                  <p>{employee?.employment?.dateHired ? fmtDate(employee.employment.dateHired) : '—'}</p>
+                </div>
+                <div>
+                  <p className="label-caps mb-1">Email</p>
+                  <p>{employee?.email || '—'}</p>
+                </div>
               </div>
-            ))}
+            </Panel>
+
+            <Panel title="Request Correction">
+              <div className="px-4 py-4 space-y-3">
+                {feedback.text && (
+                  <p className={`text-2xs px-3 py-2 rounded-md border ${feedback.ok ? 'text-signal-success border-signal-success/25 bg-signal-success/8' : 'text-signal-danger border-signal-danger/25 bg-signal-danger/8'}`}>
+                    {feedback.text}
+                  </p>
+                )}
+                <Input label="Date *" type="date" value={form.date} onChange={(event) => setForm((prev) => ({ ...prev, date: event.target.value }))} />
+                <Input label="Reason *" value={form.reason} placeholder="Forgot to time in" onChange={(event) => setForm((prev) => ({ ...prev, reason: event.target.value }))} />
+                <Textarea label="Notes" rows={3} value={form.notes} onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))} />
+                <Button variant="primary" size="sm" loading={submitting} onClick={submitCorrection}>Submit Request</Button>
+              </div>
+            </Panel>
+          </div>
+
+          <div className="lg:col-span-8 flex flex-col gap-4">
+            <Panel title="Recent Attendance">
+              <div className="overflow-x-auto">
+                <table className="table-base">
+                  <thead>
+                    <tr className="table-head-row">
+                      <th className="table-th">Date</th>
+                      <th className="table-th">Time</th>
+                      <th className="table-th">Type</th>
+                      <th className="table-th">Flag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {attendance.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="table-empty">No attendance records found.</td>
+                      </tr>
+                    ) : attendance.map((log, index) => (
+                      <tr key={log._id} className={`table-row ${index % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                        <td className="px-4 py-2.5 text-navy-100">{fmtDate(log.timestamp)}</td>
+                        <td className="px-4 py-2.5 font-mono text-navy-300 tabular">{fmtTime(log.timestamp)}</td>
+                        <td className="px-4 py-2.5"><PunchType type={log.type} /></td>
+                        <td className="px-4 py-2.5">{log.exceptions?.isLate ? <span className="font-mono text-2xs text-signal-warning font-semibold">LATE</span> : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <Panel title="My Requests">
+                <div className="divide-y divide-navy-500/40">
+                  {corrections.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-2xs text-navy-400">No correction requests yet.</p>
+                  ) : corrections.slice(0, 8).map((item) => (
+                    <div key={item._id} className="px-4 py-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-xs font-medium text-navy-100">{fmtDate(item.targetDate)}</p>
+                          <p className="text-2xs text-navy-300 mt-1">{item.notes || item.reasonCode}</p>
+                        </div>
+                        <Badge variant={item.status === 'approved' ? 'success' : item.status === 'rejected' ? 'danger' : 'warning'}>
+                          {item.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+
+              <Panel title="My Payslips">
+                <div className="divide-y divide-navy-500/40">
+                  {payslips.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-2xs text-navy-400">No approved payslips yet.</p>
+                  ) : payslips.slice(0, 6).map((entry) => (
+                    <div key={entry.runId} className="px-4 py-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium text-navy-100">{fmtDateRange(entry.cutoffStart, entry.cutoffEnd)}</p>
+                        <p className="text-2xs text-navy-300 mt-1">{entry.branchId?.name || 'All branches'}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-semibold tabular text-signal-success">{fmtPeso(entry.payslip?.netPay || 0)}</p>
+                        <p className="text-2xs text-navy-400 mt-1">{entry.status.replace('_', ' ')}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Panel>
+            </div>
           </div>
         </div>
       </div>
     </div>
   )
 }
+
+// Main page
+export default function Dashboard() {
+  const { user } = useAuth()
+  const [employees,  setEmployees]  = useState([])
+  const [todayLogs,  setTodayLogs]  = useState([])
+  const [pendingCorr, setPending]   = useState(0)
+  const [payrollRuns, setPayroll]   = useState([])
+  const [recentLogs,  setRecent]    = useState([])
+  const [loading,     setLoading]   = useState(true)
+
+  useEffect(() => {
+    if (user?.role === 'employee') return undefined
+
+    Promise.all([
+      getEmployees().catch(()               => ({ data: [] })),
+      getAttendance({ limit: 200 }).catch(() => ({ data: [] })),
+      getCorrections({ status: 'pending' }).catch(() => ({ data: [] })),
+      getPayrollRuns().catch(()             => ({ data: [] })),
+    ]).then(([empRes, attRes, corrRes, payRes]) => {
+      const emps = empRes?.data  || []
+      const logs = attRes?.data  || []
+      const today = new Date().toDateString()
+      setEmployees(emps)
+      setTodayLogs(logs.filter(l => new Date(l.timestamp).toDateString() === today))
+      setPending((corrRes?.data || []).length)
+      setPayroll(payRes?.data   || [])
+      setRecent(logs.slice(0, 14))
+    }).finally(() => setLoading(false))
+  }, [user?.role])
+
+  if (user?.role === 'employee') {
+    return <EmployeeDashboard />
+  }
+
+  const presentToday = new Set(
+    todayLogs.filter(l => l.type === 'IN').map(l =>
+      typeof l.employeeId === 'object' ? l.employeeId._id : l.employeeId
+    )
+  ).size
+
+  const lateToday  = todayLogs.filter(l => l.exceptions?.isLate).length
+  const absentToday = Math.max(0, employees.length - presentToday)
+
+  const now = new Date()
+  const datestamp = now.toLocaleDateString('en-PH', {
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+  })
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Spinner size="lg" />
+          <p className="label-caps">Loading...</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3.5
+                      border-b border-navy-500 bg-navy-800">
+        <div>
+          <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
+            Dashboard
+          </h1>
+          <p className="text-2xs text-navy-400 mt-0.5 font-mono">{datestamp}</p>
+        </div>
+        <div className="flex items-center gap-5">
+          <div className="text-right">
+            <p className="label-caps mb-0.5">Workforce</p>
+            <p className="text-lg font-bold tabular text-navy-50 leading-none">{employees.length}</p>
+          </div>
+          <div className="w-px h-8 bg-navy-500" />
+          <div className="text-right">
+            <p className="label-caps mb-0.5">Present</p>
+            <p className="text-lg font-bold tabular text-signal-success leading-none">{presentToday}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 pb-0">
+        <KPI label="Total Employees"     value={employees.length}  href="/employees"   accent />
+        <KPI label="Present Today"       value={presentToday}      href="/attendance"
+             sub={`of ${employees.length} workforce`} />
+        <KPI label="Late Today"          value={lateToday}         href="/attendance" />
+        <KPI label="Pending Corrections" value={pendingCorr}       href="/corrections" />
+      </div>
+
+      {/* Main grid */}
+      <div className="flex-1 overflow-auto p-5 pt-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 max-w-[1600px]">
+
+          {/* Recent Attendance log - col-span-7 */}
+          <div className="lg:col-span-7">
+            <Panel title="Recent Attendance" action="View All" actionHref="/attendance">
+              <div className="overflow-x-auto">
+                <table className="table-base">
+                  <thead>
+                    <tr className="table-head-row">
+                      <th className="table-th">Employee</th>
+                      <th className="table-th">Time</th>
+                      <th className="table-th">Type</th>
+                      <th className="table-th">Flag</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentLogs.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="table-empty">
+                          No attendance records found.
+                        </td>
+                      </tr>
+                    ) : recentLogs.map((log, i) => (
+                      <tr
+                        key={log._id}
+                        className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}
+                      >
+                        <td className="px-4 py-2.5 font-medium text-navy-100">
+                          {employeeName(log.employeeId)}
+                        </td>
+                        <td className="px-4 py-2.5 font-mono text-navy-300 tabular">
+                          {fmtTime(log.timestamp)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <PunchType type={log.type} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {log.exceptions?.isLate && (
+                            <span className="font-mono text-2xs text-signal-warning font-semibold">
+                              LATE
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Panel>
+          </div>
+
+          {/* Right column - col-span-5 */}
+          <div className="lg:col-span-5 flex flex-col gap-4">
+
+            {/* Today status block */}
+            <Panel title="Today's Status">
+              <div className="grid grid-cols-3 gap-px bg-navy-500/30 border-t border-navy-500/20">
+                {[
+                  { label: 'Present', value: presentToday,  cls: 'text-signal-success' },
+                  { label: 'Late',    value: lateToday,      cls: 'text-signal-warning' },
+                  { label: 'Absent',  value: absentToday,    cls: 'text-navy-200' },
+                ].map(item => (
+                  <div key={item.label} className="bg-navy-700 py-4 text-center">
+                    <p className={`text-2xl font-bold tabular ${item.cls}`}>{item.value}</p>
+                    <p className="label-caps mt-1">{item.label}</p>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+            {/* Payroll register */}
+            <Panel title="Payroll Register" action="View All" actionHref="/payroll/runs">
+              <div className="divide-y divide-navy-500/40">
+                {payrollRuns.length === 0 ? (
+                  <p className="px-4 py-8 text-center text-2xs text-navy-400">
+                    No payroll runs on record.
+                  </p>
+                ) : payrollRuns.slice(0, 6).map(run => (
+                  <div
+                    key={run._id}
+                    className="flex items-center justify-between px-4 py-3
+                               hover:bg-navy-600/30 transition-colors duration-80"
+                  >
+                    <div>
+                      <p className="text-xs font-medium text-navy-100">
+                        {fmtDateRange(run.cutoffStart, run.cutoffEnd)}
+                      </p>
+                      <p className="text-2xs font-mono text-signal-success mt-0.5 tabular">
+                        {fmtPesoShort(run.totalNet)}
+                      </p>
+                    </div>
+                    <Badge variant={run.status}>{run.status?.replace('_', ' ')}</Badge>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+

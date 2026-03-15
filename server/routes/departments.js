@@ -9,7 +9,11 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const filter = { tenantId: req.user.tenantId, isActive: true };
-    if (req.query.branchId) filter.branchId = req.query.branchId;
+    if (req.user.role !== 'super_admin' && req.user.branchId) {
+      filter.branchId = req.user.branchId;
+    } else if (req.query.branchId) {
+      filter.branchId = req.query.branchId;
+    }
     const departments = await Department.find(filter).sort('name').lean();
     return res.json({ data: departments });
   } catch (err) {
@@ -20,6 +24,9 @@ router.get('/', async (req, res) => {
 // POST /api/departments
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
+    if (req.user.role !== 'super_admin' && req.user.branchId && req.body.branchId !== req.user.branchId) {
+      return res.status(403).json({ error: 'You can only manage departments for your assigned branch' });
+    }
     const dept = await new Department({ ...req.body, tenantId: req.user.tenantId }).save();
     return res.status(201).json({ data: dept.toObject() });
   } catch (err) {
@@ -30,6 +37,9 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 // PATCH /api/departments/:id
 router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
+    if (req.user.role !== 'super_admin' && req.user.branchId && req.body.branchId && req.body.branchId !== req.user.branchId) {
+      return res.status(403).json({ error: 'You can only manage departments for your assigned branch' });
+    }
     const dept = await Department.findOneAndUpdate(
       { _id: req.params.id, tenantId: req.user.tenantId },
       { $set: req.body },

@@ -29,6 +29,7 @@ const userSchema = new mongoose.Schema({
   passwordHash: { type: String, required: true },
   firstName:    { type: String, required: true, trim: true },
   lastName:     { type: String, required: true, trim: true },
+  profilePictureUrl: { type: String, default: null },
   role:         { type: String, enum: ROLES, required: true },
 
   // Link to the Employee profile for the employee/branch_manager roles

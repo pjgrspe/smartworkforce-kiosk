@@ -4,17 +4,27 @@
  */
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+const MAX_SAFE_TOKEN_LENGTH = 6000
 
 function getToken() {
-  return localStorage.getItem('apollo_token')
+  const token = localStorage.getItem('dewebnet_token')
+  if (!token) return null
+
+  // Oversized JWTs can cause HTTP 431 (request headers too large).
+  if (token.length > MAX_SAFE_TOKEN_LENGTH) {
+    clearToken()
+    return null
+  }
+
+  return token
 }
 
 function saveToken(token) {
-  localStorage.setItem('apollo_token', token)
+  localStorage.setItem('dewebnet_token', token)
 }
 
 function clearToken() {
-  localStorage.removeItem('apollo_token')
+  localStorage.removeItem('dewebnet_token')
 }
 
 async function request(method, path, body) {
@@ -28,16 +38,22 @@ async function request(method, path, body) {
     body: body !== undefined ? JSON.stringify(body) : undefined
   })
 
-  if (res.status === 401) {
-    clearToken()
-    window.location.href = '/login'
-    return
+  let data = null
+  const contentType = res.headers.get('content-type') || ''
+  if (contentType.includes('application/json')) {
+    data = await res.json()
   }
 
-  const data = await res.json()
+  if (res.status === 401) {
+    if (token) {
+      clearToken()
+      window.location.href = '/login'
+    }
+    throw new Error(data?.error || 'Authentication failed')
+  }
 
   if (!res.ok) {
-    throw new Error(data.error || `HTTP ${res.status}`)
+    throw new Error(data?.error || `HTTP ${res.status}`)
   }
 
   return data
@@ -50,6 +66,8 @@ export async function login(email, password) {
   return data
 }
 
+export const verifyPassword = (password) => request('POST', '/auth/verify-password', { password })
+
 export function logout() {
   clearToken()
 }
@@ -57,6 +75,7 @@ export function logout() {
 // ── Employees ─────────────────────────────────────────────────────
 export const getEmployees   = ()         => request('GET',    '/employees')
 export const getEmployee    = (id)       => request('GET',    `/employees/${id}`)
+export const getMyEmployeeProfile = ()   => request('GET',    '/employees/me')
 export const createEmployee = (payload)  => request('POST',   '/employees', payload)
 export const updateEmployee  = (id, body)        => request('PATCH',  `/employees/${id}`, body)
 export const deleteEmployee  = (id)              => request('DELETE', `/employees/${id}`)
@@ -68,6 +87,10 @@ export const getAttendance = (params = {}) => {
   return request('GET', `/attendance${qs ? '?' + qs : ''}`)
 }
 export const getTodayAttendance = () => request('GET', '/attendance/today')
+export const getMyAttendance = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return request('GET', `/attendance/me${qs ? '?' + qs : ''}`)
+}
 
 // ── Branches ─────────────────────────────────────────────────────
 export const getBranches   = ()          => request('GET',    '/branches')
@@ -92,11 +115,18 @@ export const deleteSchedule = (id)        => request('DELETE', `/schedules/${id}
 
 // ── Users ─────────────────────────────────────────────────────────
 export const getUsers   = ()          => request('GET',    '/users')
+export const getMyUserProfile = ()    => request('GET',    '/users/me')
 export const createUser = (body)      => request('POST',   '/users', body)
 export const updateUser = (id, body)  => request('PATCH',  `/users/${id}`, body)
 export const deleteUser = (id)        => request('DELETE', `/users/${id}`)
+export async function updateMyUserProfile(body) {
+  const data = await request('PATCH', '/users/me', body)
+  if (data?.token) saveToken(data.token)
+  return data
+}
 
 // ── Salary Structures ─────────────────────────────────────────────
+export const getSalaryStructures = ()             => request('GET',   '/salary')
 export const getSalaryHistory = (employeeId) => request('GET',   `/salary/${employeeId}`)
 export const createSalary     = (body)       => request('POST',  '/salary', body)
 export const updateSalary     = (id, body)   => request('PATCH', `/salary/${id}`, body)
@@ -115,7 +145,12 @@ export const getCorrections    = (params = {}) => {
   const qs = new URLSearchParams(params).toString()
   return request('GET', `/corrections${qs ? '?' + qs : ''}`)
 }
+export const getMyCorrections  = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return request('GET', `/corrections/me${qs ? '?' + qs : ''}`)
+}
 export const createCorrection  = (body)       => request('POST',  '/corrections', body)
+export const createMyCorrection = (body)      => request('POST',  '/corrections/me', body)
 export const approveCorrection = (id, notes)  => request('PATCH', `/corrections/${id}/approve`, { notes })
 export const rejectCorrection  = (id, notes)  => request('PATCH', `/corrections/${id}/reject`,  { notes })
 
@@ -126,10 +161,12 @@ export const updateTenantSettings = (body) => request('PATCH', '/tenants/current
 // ── Payroll Runs ──────────────────────────────────────────────────
 export const getPayrollRuns     = ()     => request('GET',   '/payroll')
 export const getPayrollRun      = (id)   => request('GET',   `/payroll/${id}`)
+export const getMyPayslips      = ()     => request('GET',   '/payroll/me/payslips')
 export const createPayrollRun   = (body) => request('POST',  '/payroll', body)
 export const computePayrollRun  = (id)   => request('POST',  `/payroll/${id}/compute`)
 export const submitPayrollRun   = (id)   => request('PATCH', `/payroll/${id}/submit`)
 export const approvePayrollRun  = (id)   => request('PATCH', `/payroll/${id}/approve`)
 export const finalizePayrollRun = (id)   => request('PATCH', `/payroll/${id}/finalize`)
+export const deletePayrollRun   = (id)   => request('DELETE', `/payroll/${id}`)
 
 export { getToken, saveToken, clearToken }

@@ -104,6 +104,15 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
   const ndStart = timeStrToMinutes(tenantSettings.nightDiffWindow?.start || '22:00');
   const ndEnd   = timeStrToMinutes(tenantSettings.nightDiffWindow?.end   || '06:00');
+  const scheduledStartMin = timeStrToMinutes(schedule.shiftStart) || 480; // 08:00
+  const scheduledEndMin   = timeStrToMinutes(schedule.shiftEnd)   || 1020; // 17:00
+  const grace             = schedule.gracePeriodMinutes || 5;
+  const rounding          = schedule.roundingRuleMinutes || 0;
+  const unpaidBreak       = schedule.isPaidBreak ? 0 : (schedule.breakDurationMinutes || 0);
+  let scheduledWork       = scheduledEndMin - scheduledStartMin;
+  if (scheduledWork < 0) scheduledWork += 1440;
+  const scheduledEffective = Math.max(0, scheduledWork - unpaidBreak);
+  const shiftCrossesMidnight = scheduledEndMin <= scheduledStartMin;
 
   // Group logs by Manila date
   const logsByDate = {};
@@ -127,7 +136,14 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
     const dayLogs = logsByDate[dateStr] || [];
     const inLog   = dayLogs.find(l => l.type === 'IN');
-    const outLog  = [...dayLogs].reverse().find(l => l.type === 'OUT');
+    let outLog    = [...dayLogs].reverse().find(l => l.type === 'OUT');
+
+    if (!outLog && inLog && shiftCrossesMidnight) {
+      const nextDay = new Date(d);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDateStr = toManilaDateStr(nextDay);
+      outLog = (logsByDate[nextDateStr] || []).find((log) => log.type === 'OUT');
+    }
 
     const isAbsent     = !inLog && !isRestDay;
     const isMissingOut = !!inLog && !outLog;
@@ -138,14 +154,9 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     let overtimeMinutes   = 0;
     let nightDiffMinutes  = 0;
 
-    if (inLog) {
-      const scheduledStartMin = timeStrToMinutes(schedule.shiftStart) || 480; // 08:00
-      const scheduledEndMin   = timeStrToMinutes(schedule.shiftEnd)   || 1020; // 17:00
-      const grace             = schedule.gracePeriodMinutes || 5;
-      const rounding          = schedule.roundingRuleMinutes || 0;
-
+    if (inLog && !isMissingOut) {
       const actualInMin  = toManilaMinutes(inLog.timestamp);
-      const actualOutMin = outLog ? toManilaMinutes(outLog.timestamp) : scheduledEndMin;
+      const actualOutMin = toManilaMinutes(outLog.timestamp);
 
       // Late
       let late = Math.max(0, actualInMin - (scheduledStartMin + grace));
@@ -160,13 +171,7 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       // Worked (gross out-in minus unpaid break)
       let gross = actualOutMin - actualInMin;
       if (gross < 0) gross += 1440; // midnight crossover
-      const unpaidBreak = schedule.isPaidBreak ? 0 : (schedule.breakDurationMinutes || 0);
       workedMinutes = Math.max(0, gross - unpaidBreak);
-
-      // Scheduled effective work minutes
-      let scheduledWork = scheduledEndMin - scheduledStartMin;
-      if (scheduledWork < 0) scheduledWork += 1440;
-      const scheduledEffective = Math.max(0, scheduledWork - unpaidBreak);
 
       // Overtime
       overtimeMinutes = Math.max(0, workedMinutes - scheduledEffective);

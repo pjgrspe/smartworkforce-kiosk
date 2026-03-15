@@ -10,6 +10,38 @@ const logger        = require('../utils/logger');
 
 router.use(authenticate);
 
+// GET /api/attendance/me — current authenticated employee attendance
+router.get('/me', async (req, res) => {
+  try {
+    if (!req.user.employeeId) {
+      return res.status(404).json({ error: 'No employee profile is linked to this account' });
+    }
+
+    const { start_date, end_date, limit } = req.query;
+    const filter = { tenantId: req.user.tenantId, employeeId: req.user.employeeId };
+
+    if (start_date || end_date) {
+      filter.timestamp = {};
+      if (start_date) filter.timestamp.$gte = new Date(start_date);
+      if (end_date) {
+        const end = new Date(end_date);
+        end.setHours(23, 59, 59, 999);
+        filter.timestamp.$lte = end;
+      }
+    }
+
+    const rows = await AttendanceLog.find(filter)
+      .sort({ timestamp: -1 })
+      .limit(parseInt(limit, 10) || 100)
+      .lean();
+
+    return res.json({ data: rows });
+  } catch (err) {
+    logger.error('GET /attendance/me:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/attendance — filtered list
 router.get('/', async (req, res) => {
   try {
@@ -28,8 +60,8 @@ router.get('/', async (req, res) => {
       }
     }
 
-    // Branch managers see only their branch
-    if (req.user.role === 'branch_manager' && req.user.branchId) {
+    // Any branch-assigned non-superadmin sees only their branch
+    if (req.user.role !== 'super_admin' && req.user.branchId) {
       filter.branchId = req.user.branchId;
     }
 
@@ -53,7 +85,7 @@ router.get('/today', async (req, res) => {
   req.query.start_date = today.toISOString();
   // re-use the main handler
   const filter = { tenantId: req.user.tenantId, timestamp: { $gte: today } };
-  if (req.user.role === 'branch_manager' && req.user.branchId) {
+  if (req.user.role !== 'super_admin' && req.user.branchId) {
     filter.branchId = req.user.branchId;
   }
   try {
@@ -70,6 +102,10 @@ router.get('/today', async (req, res) => {
 // POST /api/attendance — admin/HR manual entry
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll', 'branch_manager'), async (req, res) => {
   try {
+    if (req.user.role !== 'super_admin' && req.user.branchId) {
+      req.body.branchId = req.user.branchId;
+    }
+
     const log = await new AttendanceLog({
       ...req.body,
       tenantId: req.user.tenantId,

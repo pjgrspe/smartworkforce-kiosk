@@ -1,5 +1,5 @@
 /**
- * Configuration Constants for Apollo Server
+ * Configuration Constants for DE WEBNET Server
  */
 
 module.exports = {
@@ -71,7 +71,7 @@ module.exports = {
   // Logging Configuration
   LOG_CONFIG: {
     LEVEL: process.env.LOG_LEVEL || 'info',
-    FILE_PATH: process.env.LOG_FILE_PATH || 'logs/apollo.log',
+    FILE_PATH: process.env.LOG_FILE_PATH || 'logs/DE WEBNET.log',
     MAX_SIZE: parseInt(process.env.LOG_MAX_SIZE || '10485760'), // 10MB
     MAX_FILES: parseInt(process.env.LOG_MAX_FILES || '30')
   }

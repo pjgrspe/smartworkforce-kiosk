@@ -13,8 +13,8 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import * as faceapi from 'face-api.js'
 import { motion, AnimatePresence } from 'framer-motion'
+import ThemeToggle from '../components/ui/ThemeToggle'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CDN_WEIGHTS      = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
@@ -46,15 +46,15 @@ function calcEAR(landmarks) {
 }
 
 const PUNCH_TYPES = [
-  { key: 'IN',        label: 'Time In',    bg: 'bg-green-600  hover:bg-green-500',  icon: '🟢' },
-  { key: 'BREAK_OUT', label: 'Break Out',  bg: 'bg-amber-500  hover:bg-amber-400',  icon: '🟡' },
-  { key: 'BREAK_IN',  label: 'Break In',   bg: 'bg-blue-600   hover:bg-blue-500',   icon: '🔵' },
-  { key: 'OUT',       label: 'Time Out',   bg: 'bg-red-600    hover:bg-red-500',    icon: '🔴' },
+  { key: 'IN',        label: 'Time In',    bg: 'bg-signal-success hover:opacity-90' },
+  { key: 'BREAK_OUT', label: 'Break Out',  bg: 'bg-signal-warning hover:opacity-90' },
+  { key: 'BREAK_IN',  label: 'Break In',   bg: 'bg-accent hover:bg-accent-400' },
+  { key: 'OUT',       label: 'Time Out',   bg: 'bg-signal-danger hover:opacity-90' },
 ]
 
 const TYPE_COLOR = {
-  IN: 'text-green-400', OUT: 'text-red-400',
-  BREAK_OUT: 'text-amber-400', BREAK_IN: 'text-blue-400',
+  IN: 'text-signal-success', OUT: 'text-signal-danger',
+  BREAK_OUT: 'text-signal-warning', BREAK_IN: 'text-accent-400',
 }
 
 // ── API helpers (no JWT — uses tenant code) ───────────────────────────────────
@@ -70,6 +70,12 @@ async function kioskFetch(method, path, tenant, body) {
   return res.json()
 }
 
+function normalizeTenantCode(raw) {
+  const normalized = String(raw || '').trim().toUpperCase()
+  if (normalized === 'APOLLO') return 'DEWEBNET'
+  return normalized
+}
+
 // ── Clock component ───────────────────────────────────────────────────────────
 function Clock() {
   const [t, setT] = useState(new Date())
@@ -82,7 +88,7 @@ function Clock() {
       <p className="text-5xl font-bold tabular-nums tracking-tight">
         {t.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
       </p>
-      <p className="text-sm text-gray-400 mt-0.5">
+      <p className="text-sm text-navy-300 mt-0.5">
         {t.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
       </p>
     </div>
@@ -109,30 +115,29 @@ function SetupScreen({ onDone }) {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+    <div className="min-h-screen bg-navy-900 flex items-center justify-center">
       <motion.div
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="bg-gray-900 border border-gray-800 rounded-3xl p-12 shadow-2xl w-[420px] text-white text-center"
+        className="bg-navy-800 border border-navy-500 rounded-xl p-10 shadow-[0_24px_64px_rgba(3,7,13,0.8)] w-[420px] text-navy-50 text-center"
       >
-        <div className="text-7xl mb-4">👁️</div>
-        <h1 className="text-4xl font-bold mb-1">Apollo Kiosk</h1>
-        <p className="text-gray-400 mb-8 text-sm">Enter your company code to start</p>
-        {err && <p className="text-red-400 text-sm mb-4">{err}</p>}
+        <h1 className="text-3xl font-bold mb-1 tracking-tight">DE WEBNET Kiosk</h1>
+        <p className="text-navy-300 mb-8 text-sm">Enter your company code to start</p>
+        {err && <p className="text-signal-danger text-sm mb-4">{err}</p>}
         <input
           autoFocus
           value={code}
           onChange={e => setCode(e.target.value.toUpperCase())}
           onKeyDown={e => e.key === 'Enter' && verify()}
           placeholder="COMPANY"
-          className="w-full bg-gray-800 border border-gray-700 rounded-2xl px-5 py-4 text-2xl text-center tracking-[0.3em] uppercase mb-5 focus:outline-none focus:border-blue-500 transition"
+          className="w-full bg-navy-700 border border-navy-500 rounded-lg px-5 py-4 text-2xl text-center tracking-[0.14em] uppercase mb-5 focus:outline-none focus:border-accent transition"
         />
         <button
           onClick={verify}
           disabled={busy}
-          className="w-full bg-blue-600 hover:bg-blue-500 py-4 rounded-2xl font-bold text-lg transition disabled:opacity-50"
+          className="w-full bg-accent hover:bg-accent-400 py-4 rounded-lg font-semibold text-lg transition disabled:opacity-50"
         >
-          {busy ? 'Verifying…' : 'Start Kiosk'}
+          {busy ? 'Verifying...' : 'Start Kiosk'}
         </button>
       </motion.div>
     </div>
@@ -142,20 +147,29 @@ function SetupScreen({ onDone }) {
 // ── Loading screen ────────────────────────────────────────────────────────────
 function LoadingScreen({ message }) {
   return (
-    <div className="min-h-screen bg-gray-950 flex flex-col items-center justify-center text-white gap-6">
-      <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-      <p className="text-xl text-gray-300">{message}</p>
+    <div className="min-h-screen bg-navy-900 flex flex-col items-center justify-center text-navy-50 gap-6">
+      <div className="w-16 h-16 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+      <p className="text-xl text-navy-300">{message}</p>
     </div>
   )
 }
 
 // ── Main kiosk ────────────────────────────────────────────────────────────────
 export default function Kiosk() {
-  const [tenantCode, setTenantCode] = useState(() => localStorage.getItem('kiosk_tenant') || '')
+  const [tenantCode, setTenantCode] = useState(() => normalizeTenantCode(localStorage.getItem('kiosk_tenant')))
+  const faceapiRef = useRef(null)
+
+  const getFaceApi = useCallback(async () => {
+    if (!faceapiRef.current) {
+      const mod = await import('face-api.js')
+      faceapiRef.current = mod
+    }
+    return faceapiRef.current
+  }, [])
 
   // phase: setup | loading | running | confirmed | punching | success | fail | error | no_face
   const [phase,     setPhase]     = useState('loading')
-  const [loadMsg,   setLoadMsg]   = useState('Initializing…')
+  const [loadMsg,   setLoadMsg]   = useState('Initializing...')
   const [confirmed, setConfirmed] = useState(null)     // { id, name, confidence }
   const [punchType, setPunchType] = useState(null)
   const [recent,    setRecent]    = useState([])
@@ -180,6 +194,16 @@ export default function Kiosk() {
 
   const setPhaseSync = (p) => { phaseRef.current = p; setPhase(p) }
 
+  // Auto-upgrade legacy tenant codes saved in browser storage.
+  useEffect(() => {
+    const current = localStorage.getItem('kiosk_tenant')
+    const normalized = normalizeTenantCode(current)
+    if (normalized && normalized !== current) {
+      localStorage.setItem('kiosk_tenant', normalized)
+      setTenantCode(normalized)
+    }
+  }, [])
+
   // ── Enumerate cameras on mount ────────────────────────────────────────────
   useEffect(() => {
     navigator.mediaDevices.getUserMedia({ video: true })
@@ -201,7 +225,8 @@ export default function Kiosk() {
     let cancelled = false
     ;(async () => {
       try {
-        setPhaseSync('loading'); setLoadMsg('Loading AI recognition models…')
+        const faceapi = await getFaceApi()
+        setPhaseSync('loading'); setLoadMsg('Loading AI recognition models...')
         await Promise.all([
           faceapi.nets.tinyFaceDetector.loadFromUri(CDN_WEIGHTS),
           faceapi.nets.faceLandmark68TinyNet.loadFromUri(CDN_WEIGHTS),
@@ -209,7 +234,7 @@ export default function Kiosk() {
         ])
         if (cancelled) return
 
-        setLoadMsg('Loading employee data…')
+        setLoadMsg('Loading employee data...')
         const { data: emps } = await kioskFetch('GET', '/employees', tenantCode)
         if (cancelled) return
 
@@ -246,11 +271,21 @@ export default function Kiosk() {
         setRecent(logs)
         setPhaseSync('running')
       } catch (err) {
-        if (!cancelled) { setLoadMsg('Error: ' + err.message); setPhaseSync('error') }
+        if (!cancelled) {
+          // If cached tenant code became invalid, force setup so user can re-enter code.
+          if ((err.message || '').toLowerCase().includes('invalid company code')) {
+            localStorage.removeItem('kiosk_tenant')
+            setTenantCode('')
+            setPhaseSync('setup')
+            return
+          }
+          setLoadMsg('Error: ' + err.message)
+          setPhaseSync('error')
+        }
       }
     })()
     return () => { cancelled = true }
-  }, [tenantCode])
+  }, [getFaceApi, tenantCode])
 
   // ── Camera ─────────────────────────────────────────────────────────────────
   const startCamera = async (deviceId) => {
@@ -325,6 +360,7 @@ export default function Kiosk() {
     const p = phaseRef.current
     if (['punching', 'success', 'fail'].includes(p))            { schedule(); return }
 
+    const faceapi = await getFaceApi()
     const displaySize = { width: video.videoWidth, height: video.videoHeight }
     faceapi.matchDimensions(canvas, displaySize)
 
@@ -429,7 +465,7 @@ export default function Kiosk() {
     }
 
     schedule()
-  }, [])
+  }, [getFaceApi])
 
   // ── Restore camera when tab becomes visible again ─────────────────────────
   useEffect(() => {
@@ -515,9 +551,9 @@ export default function Kiosk() {
 
   const punchLabel = PUNCH_TYPES.find(p => p.key === punchType)?.label
   const statusLabels = {
-    running:   'Scanning…',
+    running:   'Scanning...',
     confirmed: 'Face matched',
-    punching:  'Recording…',
+    punching:  'Recording...',
     success:   'Logged!',
     fail:      'Error',
     no_face:   'No faces enrolled',
@@ -525,18 +561,21 @@ export default function Kiosk() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-navy-900 text-navy-50 flex flex-col overflow-hidden">
+      <div className="fixed top-4 right-4 z-30">
+        <ThemeToggle />
+      </div>
 
       {/* Header */}
-      <header className="flex items-center justify-between px-8 py-4 bg-gray-900 border-b border-gray-800 shrink-0">
+      <header className="flex items-center justify-between px-6 py-3.5 bg-navy-800 border-b border-navy-500 shrink-0">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-blue-400 leading-none">Apollo</h1>
-            <span className="text-xs text-gray-500 tracking-widest uppercase">Attendance Kiosk</span>
+            <h1 className="text-2xl font-bold text-accent-400 leading-none">DE WEBNET</h1>
+            <span className="label-caps">Attendance Kiosk</span>
           </div>
-          <div className="flex items-center gap-2 bg-gray-800 px-3 py-1 rounded-full">
-            <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-green-400 animate-pulse' : 'bg-yellow-400'}`} />
-            <span className="text-xs text-gray-400">{statusLabels[phase] || phase}</span>
+          <div className="flex items-center gap-2 bg-navy-700 px-3 py-1 rounded-full border border-navy-500">
+            <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-signal-success animate-pulse' : 'bg-signal-warning'}`} />
+            <span className="text-xs text-navy-300">{statusLabels[phase] || phase}</span>
           </div>
         </div>
         <Clock />
@@ -549,8 +588,7 @@ export default function Kiosk() {
         <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
           {(phase === 'error' || phase === 'no_face') ? (
             <div className="text-center px-8">
-              <p className="text-6xl mb-4">{phase === 'no_face' ? '🙈' : '⚠️'}</p>
-              <p className="text-xl text-gray-300">{loadMsg}</p>
+              <p className="text-xl text-navy-300">{loadMsg}</p>
             </div>
           ) : (
             <div className="relative" style={{ maxWidth: 700, width: '100%' }}>
@@ -569,14 +607,14 @@ export default function Kiosk() {
 
               {/* Loading overlay — shown while models/camera are spinning up */}
               {phase === 'loading' && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-950/90 rounded-2xl gap-4">
-                  <div className="w-14 h-14 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
-                  <p className="text-gray-300 text-lg">{loadMsg}</p>
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-navy-950/90 rounded-2xl gap-4">
+                  <div className="w-14 h-14 border-4 border-accent border-t-transparent rounded-full animate-spin" />
+                  <p className="text-navy-300 text-lg">{loadMsg}</p>
                 </div>
               )}
 
               {phase === 'running' && (
-                <div className="absolute inset-0 rounded-2xl ring-2 ring-blue-500/40 animate-pulse pointer-events-none" />
+                <div className="absolute inset-0 rounded-2xl ring-2 ring-accent/40 animate-pulse pointer-events-none" />
               )}
 
               {/* Name + confidence bar */}
@@ -587,17 +625,17 @@ export default function Kiosk() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0, y: 20 }}
-                    className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-gray-950 via-gray-950/80 to-transparent px-6 pt-12 pb-5 rounded-b-2xl"
+                    className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-navy-950 via-navy-950/80 to-transparent px-6 pt-12 pb-5 rounded-b-2xl"
                   >
                     <p className="text-4xl font-bold">{confirmed.name}</p>
                     <div className="flex items-center gap-3 mt-2">
-                      <div className="flex-1 bg-gray-700 h-2 rounded-full overflow-hidden">
+                      <div className="flex-1 bg-navy-600 h-2 rounded-full overflow-hidden">
                         <div
-                          className="bg-green-400 h-2 rounded-full transition-all duration-700"
+                          className="bg-signal-success h-2 rounded-full transition-all duration-700"
                           style={{ width: `${Math.round(confirmed.confidence * 100)}%` }}
                         />
                       </div>
-                      <span className="text-green-400 font-semibold text-sm whitespace-nowrap">
+                      <span className="text-signal-success font-semibold text-sm whitespace-nowrap">
                         {Math.round(confirmed.confidence * 100)}% match
                       </span>
                     </div>
@@ -608,10 +646,10 @@ export default function Kiosk() {
               {phase === 'running' && (
                 <p className="absolute bottom-4 left-0 right-0 text-center text-sm px-4">
                   {matchBufRef.current.id && livenessRef.current.blinkCount < BLINKS_NEEDED
-                    ? <span className="text-yellow-400 animate-pulse font-semibold">👁️ Blink twice to verify ({livenessRef.current.blinkCount}/{BLINKS_NEEDED})</span>
+                    ? <span className="text-signal-warning animate-pulse font-semibold">Blink twice to verify ({livenessRef.current.blinkCount}/{BLINKS_NEEDED})</span>
                     : matchBufRef.current.id && livenessRef.current.noseMotion < NOSE_MOTION_MIN
-                    ? <span className="text-yellow-400 animate-pulse font-semibold">🤏 Move slightly to verify</span>
-                    : <span className="text-gray-600">Look at the camera</span>}
+                    ? <span className="text-signal-warning animate-pulse font-semibold">Move slightly to verify</span>
+                    : <span className="text-navy-400">Look at the camera</span>}
                 </p>
               )}
             </div>
@@ -625,18 +663,18 @@ export default function Kiosk() {
                 initial={{ opacity: 0, scale: 0.85 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-gray-950/95 z-10"
+                className="absolute inset-0 flex items-center justify-center bg-navy-950/95 z-10"
               >
                 <div className="text-center">
                   <motion.div
                     initial={{ scale: 0, rotate: -30 }}
                     animate={{ scale: 1, rotate: 0 }}
                     transition={{ type: 'spring', delay: 0.1 }}
-                    className="text-9xl mb-6"
-                  >✅</motion.div>
+                    className="text-6xl mb-6 text-signal-success"
+                  >OK</motion.div>
                   <p className="text-5xl font-bold mb-3">{confirmed.name}</p>
-                  <p className="text-2xl text-green-400 font-semibold">{punchLabel} recorded!</p>
-                  <p className="text-gray-500 text-sm mt-3">
+                  <p className="text-2xl text-signal-success font-semibold">{punchLabel} recorded!</p>
+                  <p className="text-navy-400 text-sm mt-3">
                     {new Date().toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -648,11 +686,10 @@ export default function Kiosk() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-red-950/90 z-10"
+                className="absolute inset-0 flex items-center justify-center bg-navy-950/95 z-10"
               >
                 <div className="text-center">
-                  <p className="text-8xl mb-4">❌</p>
-                  <p className="text-2xl text-red-300">Failed to record. Please try again.</p>
+                  <p className="text-2xl text-signal-danger">Failed to record. Please try again.</p>
                 </div>
               </motion.div>
             )}
@@ -660,11 +697,11 @@ export default function Kiosk() {
         </div>
 
         {/* Right panel */}
-        <div className="w-80 bg-gray-900 border-l border-gray-800 flex flex-col shrink-0">
+        <div className="w-80 bg-navy-800 border-l border-navy-500 flex flex-col shrink-0">
 
           {/* Punch buttons */}
-          <div className="p-5 border-b border-gray-800">
-            <p className="text-xs text-gray-500 uppercase tracking-widest mb-3">
+          <div className="p-5 border-b border-navy-500">
+            <p className="label-caps mb-3">
               {phase === 'confirmed' ? `Tap to log for ${confirmed?.name?.split(' ')[0]}` : 'Select punch type'}
             </p>
             <div className="grid grid-cols-2 gap-3">
@@ -673,43 +710,42 @@ export default function Kiosk() {
                   key={pt.key}
                   disabled={phase !== 'confirmed'}
                   onClick={() => doPunch(pt.key)}
-                  className={`${pt.bg} flex flex-col items-center gap-2 py-5 rounded-2xl font-semibold text-sm transition disabled:opacity-25 disabled:cursor-not-allowed active:scale-95`}
+                  className={`${pt.bg} flex flex-col items-center gap-2 py-5 rounded-lg font-semibold text-sm transition disabled:opacity-25 disabled:cursor-not-allowed active:scale-95`}
                 >
-                  <span className="text-2xl">{pt.icon}</span>
                   {pt.label}
                 </button>
               ))}
             </div>
             {phase === 'running' && (
-              <p className="text-center text-gray-600 text-xs mt-3">Waiting for face recognition…</p>
+              <p className="text-center text-navy-400 text-xs mt-3">Waiting for face recognition...</p>
             )}
             {phase === 'confirmed' && (
-              <p className="text-center text-blue-400 text-xs mt-3 animate-pulse">Tap a button to record</p>
+              <p className="text-center text-accent-400 text-xs mt-3 animate-pulse">Tap a button to record</p>
             )}
           </div>
 
           {/* Recent activity */}
           <div className="flex flex-col overflow-hidden" style={{ maxHeight: '260px' }}>
             <div className="px-4 pt-3 pb-1 shrink-0">
-              <p className="text-xs text-gray-500 uppercase tracking-widest">Today's Activity</p>
+              <p className="label-caps">Today's Activity</p>
             </div>
             <div className="overflow-y-auto flex-1">
             {recent.length === 0 ? (
-              <p className="text-gray-600 text-sm text-center mt-6">No punches yet today</p>
+              <p className="text-navy-400 text-sm text-center mt-6">No punches yet today</p>
             ) : (
-              <div className="divide-y divide-gray-800">
+              <div className="divide-y divide-navy-500">
                 {recent.map((log, i) => {
                   const emp  = log.employeeId
                   const name = emp ? `${emp.firstName} ${emp.lastName}` : '—'
                   return (
                     <div key={log._id || i} className="flex items-center justify-between px-4 py-2.5">
                       <div className="min-w-0">
-                        <p className="text-xs font-medium text-gray-200 truncate">{name}</p>
-                        <p className={`text-xs font-semibold ${TYPE_COLOR[log.type] || 'text-gray-400'}`}>
+                        <p className="text-xs font-medium text-navy-100 truncate">{name}</p>
+                        <p className={`text-xs font-semibold ${TYPE_COLOR[log.type] || 'text-navy-400'}`}>
                           {log.type?.replace('_', ' ')}
                         </p>
                       </div>
-                      <p className="text-gray-500 text-xs whitespace-nowrap ml-2">
+                      <p className="text-navy-400 text-xs whitespace-nowrap ml-2">
                         {new Date(log.timestamp).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
@@ -719,15 +755,15 @@ export default function Kiosk() {
             )}
             </div>
           </div>
-          <div className="p-4 border-t border-gray-800 space-y-3">
+          <div className="p-4 border-t border-navy-500 space-y-3">
             {/* Camera selector */}
             {cameras.length > 0 && (
               <div>
-                <p className="text-xs text-gray-600 mb-1">📷 Camera</p>
+                <p className="label-caps mb-1">Camera</p>
                 <select
                   value={selCam}
                   onChange={e => switchCamera(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-xs text-gray-300 focus:outline-none focus:border-blue-500"
+                  className="w-full bg-navy-700 border border-navy-500 rounded-md px-2 py-1.5 text-xs text-navy-200 focus:outline-none focus:border-accent"
                 >
                   {cameras.map((cam, i) => (
                     <option key={cam.deviceId} value={cam.deviceId}>
@@ -738,8 +774,8 @@ export default function Kiosk() {
               </div>
             )}
             <div className="text-center space-y-1">
-              <p className="text-xs text-gray-600">
-                Company: <span className="font-mono text-gray-500">{tenantCode}</span>
+              <p className="text-xs text-navy-400">
+                Company: <span className="font-mono text-navy-300">{tenantCode}</span>
               </p>
               <button
                 onClick={() => {
@@ -752,9 +788,9 @@ export default function Kiosk() {
                   setConfirmed(null)
                   setPhaseSync('setup')
                 }}
-                className="text-xs text-gray-700 hover:text-gray-400 transition"
+                className="text-xs text-navy-400 hover:text-navy-200 transition"
               >
-                ⚙ Reset / Change Company
+                Reset / Change Company
               </button>
             </div>
           </div>

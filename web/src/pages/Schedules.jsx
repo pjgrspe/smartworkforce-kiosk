@@ -1,11 +1,14 @@
-/**
+﻿/**
  * Schedules Page — manage work schedules.
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { getSchedules, createSchedule, updateSchedule, deleteSchedule } from '../config/api'
-
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none'
+import { getSchedules, createSchedule, updateSchedule, deleteSchedule, verifyPassword } from '../config/api'
+import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
+import Modal from '../components/ui/Modal'
+import { Input, Select } from '../components/ui/Input'
+import Button from '../components/ui/Button'
+import Spinner from '../components/ui/Spinner'
 
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -19,27 +22,6 @@ const EMPTY = {
   restDays: [0]
 }
 
-function Modal({ title, onClose, onSave, saving, children }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto pt-10 pb-10">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl mx-4">
-        <div className="flex items-center justify-between p-5 border-b">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-        </div>
-        <div className="p-5 space-y-4">{children}</div>
-        <div className="flex justify-end gap-3 px-5 pb-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onSave} disabled={saving}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export default function Schedules() {
   const [schedules, setSchedules] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -48,13 +30,16 @@ export default function Schedules() {
   const [form,      setForm]      = useState(EMPTY)
   const [saving,    setSaving]    = useState(false)
   const [error,     setError]     = useState('')
+  const [reauthOpen, setReauthOpen] = useState(false)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [reauthError, setReauthError] = useState('')
+  const [reauthLoading, setReauthLoading] = useState(false)
+  const [pendingAction, setPendingAction] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await getSchedules()
-      setSchedules(res?.data || [])
-    } catch (err) { console.error(err) }
+    try { setSchedules((await getSchedules())?.data || []) }
+    catch (err) { console.error(err) }
     finally { setLoading(false) }
   }, [])
 
@@ -76,13 +61,12 @@ export default function Schedules() {
       undertimePolicyMinutes: s.undertimePolicyMinutes ?? 0,
       roundingRuleMinutes: s.roundingRuleMinutes ?? 0,
       allowMultiplePunches: s.allowMultiplePunches || false,
-      restDays: s.restDays || [0]
+      restDays: s.restDays || [0],
     })
-    setError('')
-    setShowModal(true)
+    setError(''); setShowModal(true)
   }
 
-  const handleSave = async () => {
+  const performSave = async () => {
     setError(''); setSaving(true)
     try {
       editId ? await updateSchedule(editId, form) : await createSchedule(form)
@@ -91,144 +75,247 @@ export default function Schedules() {
     finally { setSaving(false) }
   }
 
-  const handleDelete = async (id) => {
+  const performDelete = async (id) => {
     if (!window.confirm('Delete this schedule?')) return
     await deleteSchedule(id); load()
   }
 
-  const toggleRestDay = (day) => {
-    setForm(prev => ({
-      ...prev,
-      restDays: prev.restDays.includes(day)
-        ? prev.restDays.filter(d => d !== day)
-        : [...prev.restDays, day]
-    }))
+  const requireSensitiveAuth = (action) => {
+    if (hasFreshSensitiveAuth()) {
+      if (action.type === 'save') {
+        performSave()
+      }
+      if (action.type === 'delete' && action.id) {
+        performDelete(action.id)
+      }
+      return
+    }
+
+    setPendingAction(action)
+    setReauthPassword('')
+    setReauthError('')
+    setReauthOpen(true)
   }
+
+  const handleSave = () => {
+    requireSensitiveAuth({ type: 'save' })
+  }
+
+  const handleDelete = (id) => {
+    requireSensitiveAuth({ type: 'delete', id })
+  }
+
+  const confirmSensitiveAuth = async () => {
+    if (!reauthPassword) {
+      setReauthError('Password is required')
+      return
+    }
+
+    setReauthLoading(true)
+    setReauthError('')
+    try {
+      await verifyPassword(reauthPassword)
+      markSensitiveAuthNow()
+      const action = pendingAction
+      setPendingAction(null)
+      setReauthOpen(false)
+      setReauthPassword('')
+
+      if (action?.type === 'save') {
+        await performSave()
+      }
+      if (action?.type === 'delete' && action.id) {
+        await performDelete(action.id)
+      }
+    } catch (err) {
+      setReauthError(err.message || 'Password verification failed')
+    } finally {
+      setReauthLoading(false)
+    }
+  }
+
+  const toggleRestDay = (day) => setForm(prev => ({
+    ...prev,
+    restDays: prev.restDays.includes(day)
+      ? prev.restDays.filter(d => d !== day)
+      : [...prev.restDays, day]
+  }))
 
   const setF = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Schedules</h2>
-        <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
-          + Add Schedule
-        </button>
+    <div className="flex-1 flex flex-col min-h-0">
+
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3.5
+                      border-b border-navy-500 bg-navy-800">
+        <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
+          Schedules
+        </h1>
+        <Button variant="primary" size="sm" onClick={openCreate}>+ Add Schedule</Button>
       </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading…</div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Code', 'Name', 'Type', 'Shift', 'Break', 'Grace', 'Rest Days', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {schedules.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-400">No schedules yet</td></tr>
-              ) : schedules.map(s => (
-                <tr key={s._id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs">{s.code}</td>
-                  <td className="px-4 py-3 font-medium">{s.name}</td>
-                  <td className="px-4 py-3">
-                    <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">{s.type}</span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{s.shiftStart} – {s.shiftEnd}</td>
-                  <td className="px-4 py-3 text-gray-500">{s.breakDurationMinutes}m {s.isPaidBreak ? '(paid)' : ''}</td>
-                  <td className="px-4 py-3 text-gray-500">{s.gracePeriodMinutes}m</td>
-                  <td className="px-4 py-3 text-xs text-gray-500">{(s.restDays || []).map(d => DAYS[d]).join(', ')}</td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => openEdit(s)} className="text-blue-600 hover:underline mr-3 text-xs">Edit</button>
-                    <button onClick={() => handleDelete(s._id)} className="text-red-500 hover:underline text-xs">Delete</button>
-                  </td>
+      <div className="flex-1 overflow-auto p-6">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><Spinner size="lg" /></div>
+        ) : (
+          <div className="table-shell">
+            <table className="table-base">
+              <thead className="sticky top-0 z-10">
+                <tr className="table-head-row">
+                  {['Code', 'Name', 'Type', 'Shift', 'Break', 'Grace', 'Rest Days', ''].map(h => (
+                    <th key={h} className="table-th">{h}</th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {schedules.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="table-empty">
+                      No schedules yet.
+                    </td>
+                  </tr>
+                ) : schedules.map((s, i) => (
+                  <tr key={s._id}
+                      className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                    <td className="px-4 py-2.5 font-mono text-navy-300">{s.code}</td>
+                    <td className="px-4 py-2.5 font-medium text-navy-100">{s.name}</td>
+                    <td className="px-4 py-2.5">
+                      <span className="label-caps px-2 py-0.5 border border-navy-500 text-navy-300 rounded-md">
+                        {s.type}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 tabular text-navy-200">
+                      {s.shiftStart} – {s.shiftEnd}
+                    </td>
+                    <td className="px-4 py-2.5 text-navy-400">
+                      {s.breakDurationMinutes}m{s.isPaidBreak ? ' (paid)' : ''}
+                    </td>
+                    <td className="px-4 py-2.5 text-navy-400">{s.gracePeriodMinutes}m</td>
+                    <td className="px-4 py-2.5 text-navy-400">
+                      {(s.restDays || []).map(d => DAYS[d]).join(', ')}
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button onClick={() => openEdit(s)}
+                        className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">
+                        Edit
+                      </button>
+                      <button onClick={() => handleDelete(s._id)}
+                        className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {showModal && (
-        <Modal title={editId ? 'Edit Schedule' : 'Add Schedule'} onClose={() => setShowModal(false)} onSave={handleSave} saving={saving}>
-          {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
+        <Modal
+          title={editId ? 'Edit Schedule' : 'Add Schedule'}
+          width="max-w-2xl"
+          onClose={() => setShowModal(false)}
+          onConfirm={handleSave}
+          loading={saving}
+        >
+          <div className="space-y-4">
+            {error && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8
+                            border border-signal-danger/25 rounded-md">{error}</p>
+            )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-              <input className={inputCls} value={form.name} onChange={e => setF('name', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Code *</label>
-              <input className={inputCls} value={form.code} onChange={e => setF('code', e.target.value.toUpperCase())} placeholder="e.g. DAYSHIFT_8_5" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Type</label>
-              <select className={inputCls} value={form.type} onChange={e => setF('type', e.target.value)}>
+            <div className="grid grid-cols-3 gap-3">
+              <Input label="Name *" value={form.name}
+                onChange={e => setF('name', e.target.value)} />
+              <Input label="Code *" value={form.code}
+                onChange={e => setF('code', e.target.value.toUpperCase())}
+                placeholder="DAYSHIFT_8_5" />
+              <Select label="Type" value={form.type}
+                onChange={e => setF('type', e.target.value)}>
                 <option value="fixed">Fixed</option>
                 <option value="shifting">Shifting</option>
                 <option value="flexible">Flexible</option>
-              </select>
+              </Select>
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Shift Start</label>
-              <input type="time" className={inputCls} value={form.shiftStart} onChange={e => setF('shiftStart', e.target.value)} />
+            <div className="grid grid-cols-2 gap-3">
+              <Input type="time" label="Shift Start" value={form.shiftStart}
+                onChange={e => setF('shiftStart', e.target.value)} />
+              <Input type="time" label="Shift End" value={form.shiftEnd}
+                onChange={e => setF('shiftEnd', e.target.value)} />
+              <Input type="number" label="Break Duration (min)" value={form.breakDurationMinutes}
+                onChange={e => setF('breakDurationMinutes', +e.target.value)} />
+              <Input type="number" label="Grace Period (min)" value={form.gracePeriodMinutes}
+                onChange={e => setF('gracePeriodMinutes', +e.target.value)} />
+              <Input type="number" label="Rounding Rule (min)" value={form.roundingRuleMinutes}
+                onChange={e => setF('roundingRuleMinutes', +e.target.value)} />
             </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Shift End</label>
-              <input type="time" className={inputCls} value={form.shiftEnd} onChange={e => setF('shiftEnd', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Break Duration (min)</label>
-              <input type="number" className={inputCls} value={form.breakDurationMinutes} onChange={e => setF('breakDurationMinutes', +e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Grace Period (min)</label>
-              <input type="number" className={inputCls} value={form.gracePeriodMinutes} onChange={e => setF('gracePeriodMinutes', +e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Rounding Rule (min)</label>
-              <input type="number" className={inputCls} value={form.roundingRuleMinutes} onChange={e => setF('roundingRuleMinutes', +e.target.value)} />
-            </div>
-          </div>
 
-          <div className="flex gap-6">
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={form.isPaidBreak} onChange={e => setF('isPaidBreak', e.target.checked)} />
-              Paid Break
-            </label>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <input type="checkbox" checked={form.allowMultiplePunches} onChange={e => setF('allowMultiplePunches', e.target.checked)} />
-              Allow Multiple Punches
-            </label>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-2">Rest Days</label>
-            <div className="flex gap-2 flex-wrap">
-              {DAYS.map((day, i) => (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => toggleRestDay(i)}
-                  className={`px-3 py-1 rounded-full text-xs font-medium border ${
-                    form.restDays.includes(i) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
-                  }`}
-                >
-                  {day}
-                </button>
+            <div className="flex gap-6">
+              {[['isPaidBreak', 'Paid Break'], ['allowMultiplePunches', 'Allow Multiple Punches']].map(([k, label]) => (
+                <label key={k} className="flex items-center gap-2 text-xs text-navy-200 cursor-pointer">
+                  <input type="checkbox" className="accent-accent w-3.5 h-3.5"
+                    checked={form[k]} onChange={e => setF(k, e.target.checked)} />
+                  {label}
+                </label>
               ))}
             </div>
+
+            <div>
+              <p className="label-caps mb-2">Rest Days</p>
+              <div className="flex gap-2 flex-wrap">
+                {DAYS.map((day, i) => (
+                  <button key={i} type="button" onClick={() => toggleRestDay(i)}
+                    className={`px-3 py-1 text-2xs font-medium border rounded-md transition-colors
+                      ${form.restDays.includes(i)
+                        ? 'bg-accent text-white border-accent'
+                        : 'bg-navy-600 text-navy-300 border-navy-500 hover:border-accent/50'}`}>
+                    {day}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {reauthOpen && (
+        <Modal
+          title="Sensitive Action"
+          subtitle="Re-enter your password to continue."
+          width="max-w-md"
+          onClose={() => { setReauthOpen(false); setPendingAction(null) }}
+          onConfirm={confirmSensitiveAuth}
+          confirmLabel="Continue"
+          loading={reauthLoading}
+        >
+          <div className="space-y-3">
+            {reauthError && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">
+                {reauthError}
+              </p>
+            )}
+            <Input
+              label="Password"
+              type="password"
+              autoFocus
+              value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  confirmSensitiveAuth()
+                }
+              }}
+            />
           </div>
         </Modal>
       )}
     </div>
   )
 }
+
+

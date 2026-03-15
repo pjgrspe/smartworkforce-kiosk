@@ -1,5 +1,5 @@
 -- ============================================
--- APOLLO FACIAL RECOGNITION ATTENDANCE SYSTEM
+-- DE WEBNET FACIAL RECOGNITION ATTENDANCE SYSTEM
 -- Database Schema with Row Level Security
 -- ============================================
 
@@ -320,7 +320,7 @@ GROUP BY e.id, e.name, e.department;
 
 DO $$
 BEGIN
-    RAISE NOTICE '✅ Apollo Facial Recognition System - Database schema created successfully!';
+    RAISE NOTICE '✅ DE WEBNET Facial Recognition System - Database schema created successfully!';
     RAISE NOTICE '📋 Next steps:';
     RAISE NOTICE '   1. Create your first admin user via Supabase Auth UI';
     RAISE NOTICE '   2. Run the UPDATE query above to promote them to admin';

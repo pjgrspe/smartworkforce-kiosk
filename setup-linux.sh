@@ -1,12 +1,12 @@
 #!/bin/bash
 
 ##############################################
-# Apollo - Linux/WSL Quick Setup Script
+# DE WEBNET - Linux/WSL Quick Setup Script
 ##############################################
 
 set -e
 
-echo "🚀 Apollo Facial Recognition System - Linux Setup"
+echo "🚀 DE WEBNET Facial Recognition System - Linux Setup"
 echo "=================================================="
 echo ""
 

@@ -1,546 +1,235 @@
-# Apollo Facial Recognition Attendance System - Setup Guide
-
-## Quick Start Guide
-
-This guide will walk you through setting up the Apollo system from 0% to 100%.
-
----
-
-## Prerequisites
-
-Before you begin, ensure you have the following installed:
-
-### Required Software
-
-1. **Node.js 18+**
-   - Download from: https://nodejs.org/
-   - Verify: `node --version`
-
-2. **Python 3.8+**
-   - Download from: https://www.python.org/downloads/
-   - Verify: `python --version`
-   - ⚠️ **Important**: During installation, check "Add Python to PATH"
-
-3. **Visual C++ Build Tools** (Required for face_recognition library)
-   - Download: https://visualstudio.microsoft.com/visual-cpp-build-tools/
-   - Select "Desktop development with C++" workload
-   - This is necessary for dlib compilation on Windows
-
-4. **Git** (Optional, for version control)
-   - Download from: https://git-scm.com/
-
-### Required Accounts
-
-1. **Supabase Account** (Free tier works)
-   - Sign up at: https://supabase.com/
-   - You'll create a project in Step 1
-
----
-
-## Step-by-Step Setup
-
-### Step 1: Supabase Project Setup
-
-1. **Create New Supabase Project**
-   - Go to https://supabase.com/dashboard
-   - Click "New Project"
-   - Choose a name (e.g., "apollo-attendance")
-   - Set a strong database password (save this!)
-   - Select a region close to you
-   - Wait for project to initialize (~2 minutes)
-
-2. **Get Credentials**
-   - Go to Project Settings → API
-   - Copy the following:
-     - `Project URL` (e.g., https://xxxxx.supabase.co)
-     - `anon public` key
-     - `service_role` key (⚠️ Keep this secret!)
-
-3. **Run Database Migration**
-   - Go to SQL Editor in Supabase dashboard
-   - Click "New Query"
-   - Copy the entire contents of `/home/pgorospe-dsdc/Projects/Apollo/supabase/migrations/001_initial_schema.sql`
-   - Paste into the SQL editor
-   - Click "Run"
-   - You should see success messages
-
-4. **Create Admin User**
-   - Go to Authentication → Users
-   - Click "Add User"
-   - Enter email: `admin@example.com` (or your email)
-   - Enter a secure password
-   - Click "Create User"
-
-5. **Promote User to Admin**
-   - Go back to SQL Editor
-   - Run this query (replace with your email):
-   ```sql
-   UPDATE auth.users
-   SET raw_app_meta_data = jsonb_set(
-       COALESCE(raw_app_meta_data, '{}'::jsonb),
-       '{role}',
-       '"admin"'
-   )
-   WHERE email = 'admin@example.com';
-   ```
-
-6. **Verify Setup**
-   - Go to Database → Tables
-   - You should see: `employees`, `attendance_logs`
-   - Go to Storage
-   - You should see: `employee-photos` bucket
-
-✅ **Supabase setup complete!**
-
----
-
-### Step 2: Configure Environment Variables
-
-1. **Create Root .env File**
-   ```bash
-   cd /home/pgorospe-dsdc/Projects/Apollo
-   cp .env.example .env
-   ```
-
-2. **Edit .env File**
-   Open `/home/pgorospe-dsdc/Projects/Apollo/.env` and update:
-   ```bash
-   # Supabase - FROM STEP 1
-   SUPABASE_URL=https://xxxxx.supabase.co
-   SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR...
-   SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR...
-
-   # WebSocket (default is fine)
-   WS_PORT=8080
-   WS_HOST=localhost
-
-   # AI Engine (defaults  are recommended)
-   CAMERA_INDEX=0
-   CONFIDENCE_THRESHOLD=0.6
-   FPS=15
-   RECOGNITION_COOLDOWN_MINUTES=5
-   ```
-
-3. **Create Web App .env File**
-   ```bash
-   cd web
-   cp .env.example .env
-   ```
-
-4. **Edit web/.env File**
-   ```bash
-   VITE_SUPABASE_URL=https://xxxxx.supabase.co
-   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR...
-   VITE_WS_URL=ws://localhost:8080
-   ```
-
-✅ **Environment configured!**
-
----
-
-### Step 3: Install Dependencies
-
-1. **Install Root Dependencies**
-   ```bash
-   cd /home/pgorospe-dsdc/Projects/Apollo
-   npm install
-   ```
-
-2. **Install Server Dependencies**
-   ```bash
-   cd server
-   npm install
-   cd ..
-   ```
-
-3. **Install Web App Dependencies**
-   ```bash
-   cd web
-   npm install
-   cd ..
-   ```
-
-4. **Install Python Dependencies**
-   ```bash
-   cd ai
-   python -m venv venv
-
-   # Activate virtual environment
-   # On Windows:
-   venv\Scripts\activate
-   # On Linux/Mac:
-   # source venv/bin/activate
-
-   # Install packages
-   pip install --upgrade pip
-   pip install cmake  # Required for dlib
-   pip install dlib   # This may take 5-10 minutes
-   pip install -r requirements.txt
-
-   cd ..
-   ```
-
-   **Troubleshooting Python Installation:**
-   - If dlib fails to install:
-     - Ensure Visual C++ Build Tools are installed
-     - Restart your terminal
-     - Try: `pip install dlib --no-cache-dir`
-   - If face_recognition fails:
-     - Install dlib first (see above)
-     - Then: `pip install face-recognition`
-
-✅ **All dependencies installed!**
-
----
-
-### Step 4: Test Individual Components
-
-Test each component separately before running together.
-
-#### Test 1: Node.js Server
-
-```bash
-cd /home/pgorospe-dsdc/Projects/Apollo/server
-npm start
-```
-
-**Expected output:**
-```
-🚀 Starting Apollo Server...
-✅ Supabase sync service initialized
-✅ Offline buffer service initialized
-✅ Controllers initialized
-✅ Apollo Server started successfully
-📡 WebSocket server listening on ws://localhost:8080
-```
-
-**Troubleshooting:**
-- If "Missing SUPABASE_URL": Check your .env file
-- If "EADDRINUSE": Port 8080 is in use, change WS_PORT in .env
-
-Keep this running and open a new terminal for next steps.
-
-#### Test 2: React Web App
-
-```bash
-cd /home/pgorospe-dsdc/Projects/Apollo/web
-npm run dev
-```
-
-**Expected output:**
-```
-  VITE v5.0.8  ready in 500 ms
-
-  ➜  Local:   http://localhost:5173/
-  ➜  Network: use --host to expose
-```
-
-Visit http://localhost:5173/login in your browser.
-- Try logging in with your admin credentials
-- You should see the Admin Panel
-
-#### Test 3: Python AI Engine
-
-**⚠️ Important**: Connect a USB camera before this step!
-
-```bash
-cd /home/pgorospe-dsdc/Projects/Apollo/ai
-# Make sure venv is activated
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-python main.py
-```
-
-**Expected output:**
-```
-🚀 Starting Apollo AI Engine...
-Configuration: 640x480 @ 15 FPS
-✅ Camera initialized
-✅ Recognition service initialized
-✅ WebSocket connected
-✅ Apollo AI Engine started successfully
-```
-
-**Troubleshooting:**
-- Camera error: Check camera permissions, close other apps using camera
-- WebSocket error: Ensure Node.js server is running
-- Import errors: Activate venv and reinstall requirements
-
-✅ **All components working!**
-
----
-
-### Step 5: Add Your First Employee
-
-1. **Prepare 3-5 Photos**
-   - Take 3-5 photos of yourself or a test employee
-   - Different angles: front, left, right, slight tilt
-   - Good lighting, clear face
-   - Save as JPG files
-
-2. **Upload via Admin Panel**
-   - Go to http://localhost:5173/admin
-   - Click "Employees" tab
-   - Click "Add Employee"
-   - Fill in details:
-     - Name: Your Name
-     - Email: your.email@example.com
-     - Department: Engineering (optional)
-     - Position: Test User (optional)
-   - Upload 3-5 photos
-   - Click "Save"
-
-3. **Verify in Database**
-   - Go to Supabase Dashboard → Table Editor
-   - Check `employees` table
-   - You should see your new employee with face_encodings
-
-4. **Test Recognition**
-   - Ensure Python AI engine is running
-   - Stand in front of camera
-   - Within 2-3 seconds, you should see:
-     - Console: "✅ Match: Your Name (confidence: 0.85)"
-     - Kiosk UI: Welcome message with your name
-     - Admin Panel: New attendance log
-
-✅ **First employee added and recognized!**
-
----
-
-### Step 6: Production Deployment with PM2
-
-1. **Install PM2 Globally**
-   ```bash
-   npm install -g pm2 pm2-windows-service
-   ```
-
-2. **Install PM2 as Windows Service**
-   ```bash
-   pm2-service-install -n PM2
-   ```
-
-3. **Start All Services**
-   ```bash
-   cd /home/pgorospe-dsdc/Projects/Apollo
-   pm2 start pm2.ecosystem.config.js
-   ```
-
-4. **Save PM2 Configuration**
-   ```bash
-   pm2 save
-   ```
-
-5. **Verify Services**
-   ```bash
-   pm2 list
-   ```
-
-   You should see:
-   - apollo-server (online)
-   - apollo-ai (online)
-   - apollo-web (online)
-
-6. **View Logs**
-   ```bash
-   pm2 logs
-   ```
-
-7. **Monitor Resources**
-   ```bash
-   pm2 monit
-   ```
-
-✅ **Production deployment complete!**
-
----
-
-### Step 7: Configure Windows Auto-Start
-
-#### Option A: Kiosk Mode (Recommended for Kiosk Deployment)
-
-1. **Create Kiosk Batch File**
-   - Create `C:\Apollo\start-kiosk.bat`:
-   ```batch
-   @echo off
-   start /max chrome.exe --kiosk --app=http://localhost:5173/kiosk --disable-pinch --overscroll-history-navigation=0
-   ```
-
-2. **Add to Startup**
-   - Press `Win + R`
-   - Type `shell:startup`
-   - Create shortcut to `C:\Apollo\start-kiosk.bat`
-
-3. **Optional: Auto-Login Windows**
-   - Press `Win + R`
-   - Type `netplwiz`
-   - Uncheck "Users must enter a username and password"
-   - Enter your Windows credentials
-
-#### Option B: Admin Panel Auto-Start
-
-Skip kiosk batch file, just open browser to:
-http://localhost:5173/admin
-
-✅ **Auto-start configured!**
-
----
-
-### Step 8: Configure Windows Firewall (Optional)
-
-If accessing from other devices on network:
-
-```powershell
-# Run as Administrator
-netsh advfirewall firewall add rule name="Apollo WebSocket" dir=in action=allow protocol=TCP localport=8080
-netsh advfirewall firewall add rule name="Apollo Web App" dir=in action=allow protocol=TCP localport=5173
-```
-
-✅ **Firewall configured!**
-
----
-
-## Testing the Complete System
-
-### Test Scenario 1: Happy Path
-
-1. Start all services (PM2 should auto-start)
-2. Open Kiosk: http://localhost:5173/kiosk
-3. Stand in front of camera
-4. **Expected**: Welcome screen appears within 2 seconds
-5. **Expected**: Attendance log appears in kiosk UI
-6. Open Admin Panel in another browser
-7. **Expected**: New attendance log appears in real-time
-
-### Test Scenario 2: Offline Resilience
-
-1. Disable internet connection (disable network adapter)
-2. Stand in front of camera 3 times
-3. Check Node.js logs: `pm2 logs apollo-server`
-4. **Expected**: "Buffered attendance log" messages
-5. **Expected**: "Connection lost, buffering mode active"
-6. Re-enable internet
-7. **Expected**: "Connection restored, starting sync..."
-8. **Expected**: All 3 attendance logs sync to Supabase
-9. Verify in Supabase Dashboard → attendance_logs table
-
-### Test Scenario 3: System Recovery
-
-1. Kill Python AI: `pm2 stop apollo-ai`
-2. Wait 30 seconds
-3. **Expected**: PM2 auto-restarts: `pm2 list` shows online
-4. **Expected**: Python reconnects to WebSocket
-5. System continues normal operation
-
-✅ **All tests passing!**
-
----
-
-## Common Issues & Solutions
-
-### Issue: "Camera not found"
-**Solution:**
-- Check camera is plugged in
-- Close other apps using camera (Zoom, Teams, etc.)
-- Try different CAMERA_INDEX (0, 1, 2) in .env
-- Add Python to Windows Defender exclusions
-
-### Issue: "Face recognition too slow"
-**Solution:**
-- Reduce FPS in .env (try 10 instead of 15)
-- Reduce FRAME_WIDTH/HEIGHT (try 480x360)
-- Ensure no other heavy processes running
-- Check CPU usage with `pm2 monit`
-
-### Issue: "WebSocket connection failed"
-**Solution:**
-- Ensure Node.js server is running: `pm2 list`
-- Check firewall isn't blocking port 8080
-- Verify WS_URL in web/.env matches server port
-
-### Issue: "Low confidence scores"
-**Solution:**
-- Upload more photos (5 instead of 3)
-- Ensure good lighting when training and recognizing
-- Try different angles in training photos
-- Lower CONFIDENCE_THRESHOLD (0.5) for testing
-
-### Issue: "Sync not working"
-**Solution:**
-- Verify Supabase credentials in .env
-- Check internet connection
-- Use Force Sync button in Admin Panel
-- Check logs: `pm2 logs apollo-server`
-
----
-
-## Maintenance
-
-### Daily
-- Check PM2 status: `pm2 list`
-- View logs for errors: `pm2 logs --lines 50`
-
-### Weekly
-- Review attendance logs in Admin Panel
-- Check pending sync count
-- Restart services if needed: `pm2 restart all`
-
-### Monthly
-- Update employee photos if accuracy decreases
-- Review and archive old logs
-- Check disk space: `pm2 monit`
-
----
-
-## Next Steps
-
-1. **Add More Employees**
-   - Use Admin Panel to add all employees
-   - Ensure 3-5 photos per person
-
-2. **Customize**
-   - Adjust confidence threshold
-   - Modify cooldown period
-   - Customize kiosk UI colors/branding
-
-3. **Backup**
-   - Backup Supabase database (Project Settings → Database → Backups)
-   - Backup .env file
-   - Export employee data periodically
-
-4. **Monitor**
-   - Set up email alerts (optional, see .env.example)
-   - Monitor PM2 dashboard
-   - Review attendance patterns
-
----
-
-## Support
-
-For issues:
-1. Check logs: `pm2 logs`
-2. Review this guide
-3. Check Supabase dashboard for errors
-4. Verify all prerequisites installed
-
----
-
-## Success Checklist
-
-- [ ] Supabase project created and configured
-- [ ] Database schema migrated successfully
-- [ ] Admin user created and promoted
-- [ ] Environment variables configured
-- [ ] All dependencies installed (Node, Python, packages)
-- [ ] Server starts without errors
-- [ ] Web app loads and login works
-- [ ] Python AI connects to camera
-- [ ] First employee added with photos
-- [ ] Face recognition works
-- [ ] Attendance logs in real-time
-- [ ] Offline sync tested and working
-- [ ] PM2 services running
-- [ ] Auto-start configured
-- [ ] System tested end-to-end
-
-**Congratulations! Your Apollo Facial Recognition Attendance System is now at 100%! 🎉**
+# DE WEBNET Setup Guide (New Laptop)
+
+This guide is optimized for moving this project to another laptop quickly.
+
+## 0. One-Click Setup (Recommended on Windows)
+
+From project root, run:
+
+  npm run setup:windows
+
+Optional variants:
+
+  npm run setup:windows:skip-install
+  npm run setup:windows:mock
+  npm run setup:windows:start
+
+What it does:
+
+- checks Node/npm
+- creates .env and web/.env from examples if missing
+- installs root/server/web dependencies
+- seeds tenant and default role accounts
+- optionally seeds mock data
+- optionally opens server + web dev terminals
+
+You can also run by double-clicking:
+
+  scripts/setup-windows.cmd
+
+Or directly with flags:
+
+  powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -IncludeMockData -StartServices
+
+## 1. What You Need
+
+- Windows 10/11
+- Node.js 18+ and npm 9+
+- Git
+- MongoDB Atlas account or local MongoDB
+- Optional: Python 3.8+ if you will run AI camera service
+
+Quick checks:
+
+  node --version
+  npm --version
+  git --version
+
+## 2. Get the Project
+
+Clone or copy the project to your laptop, then open this folder:
+
+  C:/Users/Patrick/DEX/Apollo
+
+## 3. Environment Setup
+
+### 3.1 Root env
+
+Copy example env:
+
+  copy .env.example .env
+
+Edit .env and set at least:
+
+- MONGODB_URI
+- JWT_SECRET
+- CORS_ORIGIN
+- HTTP_PORT
+
+Important:
+
+- Keep database name casing consistent as DEWEBNET.
+- Example Atlas format:
+  mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/DEWEBNET?retryWrites=true&w=majority
+
+### 3.2 Web env (if needed)
+
+If web uses env in your machine, create it in web folder:
+
+  cd web
+  if not exist .env copy .env.example .env
+
+## 4. Install Dependencies
+
+From project root:
+
+  npm install
+
+If needed, also run explicitly:
+
+  cd server
+  npm install
+  cd ../web
+  npm install
+
+Optional AI setup:
+
+  cd ../ai
+  python -m venv venv
+  venv\Scripts\activate
+  pip install --upgrade pip
+  pip install -r requirements.txt
+
+## 5. Start the App
+
+Open two terminals.
+
+Terminal 1 (API server):
+
+  cd C:/Users/Patrick/DEX/Apollo/server
+  npm run dev
+
+Terminal 2 (web app):
+
+  cd C:/Users/Patrick/DEX/Apollo/web
+  npm run dev
+
+Default URLs:
+
+- API: http://localhost:3000
+- Web: http://localhost:5173
+
+## 6. Seed System Accounts
+
+Run once after DB is ready:
+
+  cd C:/Users/Patrick/DEX/Apollo/server
+  node scripts/seed.js
+
+This creates or updates default users and resets their password.
+
+Default password for all seeded users:
+
+- admin123
+
+Default seeded accounts:
+
+- super_admin: admin@dewebnet.com
+- client_admin: clientadmin@dewebnet.com
+- hr_payroll: hr@dewebnet.com
+- branch_manager: manager@dewebnet.com
+- employee: employee@dewebnet.com
+- auditor: auditor@dewebnet.com
+
+Kiosk tenant code:
+
+- DEWEBNET
+
+## 7. Seed Mock Payroll Data (Optional)
+
+For demo and testing payroll/attendance flows:
+
+  cd C:/Users/Patrick/DEX/Apollo/server
+  node scripts/seed-mock-payroll-dataset.js
+
+This seeds:
+
+- 5 mock employees
+- salary structures
+- realistic attendance logs
+
+## 8. Quick Smoke Test
+
+1. Login at http://localhost:5173/login using admin@dewebnet.com and admin123.
+2. Open Employees page and verify records load.
+3. Open Attendance page and test Export Excel.
+4. Open Payroll Runs and create/compute a run.
+5. Open Kiosk page and use tenant code DEWEBNET.
+
+## 9. Known Issues and Fast Fixes
+
+### Issue: Mongo error about different DB case
+
+Error example: db already exists with different case...
+
+Fix:
+
+- Ensure MONGODB_URI uses DEWEBNET (uppercase), not dewebnet.
+- Re-run:
+  node scripts/seed.js
+
+### Issue: Kiosk says invalid company code and shows APOLLO
+
+Cause: old code cached in browser localStorage.
+
+Fix:
+
+- Click Reset / Change Company in kiosk and enter DEWEBNET.
+- Hard refresh browser.
+
+### Issue: Server fails to start on port 3000
+
+Check if port is occupied:
+
+  netstat -ano | findstr :3000
+
+Either stop conflicting process or change HTTP_PORT in .env.
+
+### Issue: Web starts but API calls fail
+
+Check:
+
+- server terminal is running
+- CORS_ORIGIN includes http://localhost:5173
+- API URL in web config points to http://localhost:3000/api
+
+## 10. Transfer Checklist
+
+When moving to another laptop, do these in order:
+
+1. Install Node/npm/Git.
+2. Copy project folder.
+3. Create .env from .env.example.
+4. Set MONGODB_URI and JWT_SECRET.
+5. Run npm install in root, server, web.
+6. Run server and web.
+7. Run node scripts/seed.js.
+8. Optional: run node scripts/seed-mock-payroll-dataset.js.
+9. Login and verify pages.
+
+Fast path using one-click setup:
+
+1. Install Node/npm/Git.
+2. Copy project folder.
+3. Run npm run setup:windows.
+4. Optional: run npm run setup:windows:skip-install if dependencies are already installed.
+5. Optional: run npm run setup:windows:mock.
+6. Login and verify pages.
+
+## 11. Recommended Production Notes
+
+- Change all default seeded passwords immediately.
+- Change JWT_SECRET to a long random value.
+- Restrict CORS_ORIGIN to trusted domains.
+- Use strong MongoDB credentials and IP restrictions.
+- Keep .env out of version control.

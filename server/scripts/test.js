@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Apollo API Test Suite
+ * DE WEBNET API Test Suite
  * Run from anywhere: node scripts/test.js
  *
  * Coverage:
@@ -24,9 +24,9 @@ const https = require('https')
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const BASE     = process.env.API_URL  || 'http://localhost:3000'
-const EMAIL    = process.env.EMAIL    || 'admin@apollo.com'
+const EMAIL    = process.env.EMAIL    || 'admin@dewebnet.com'
 const PASSWORD = process.env.PASSWORD || 'admin123'
-const TENANT   = process.env.TENANT   || 'APOLLO'
+const TENANT   = process.env.TENANT   || 'DEWEBNET'
 
 // ── Tiny HTTP client ──────────────────────────────────────────────────────────
 function request(method, path, body, token) {
@@ -56,6 +56,17 @@ function request(method, path, body, token) {
 let passed = 0, failed = 0, skipped = 0
 const failures = []
 const start = Date.now()
+const runSuffix = Date.now().toString().slice(-6)
+
+function addDays(date, days) {
+  const next = new Date(date)
+  next.setDate(next.getDate() + days)
+  return next
+}
+
+function toDateOnly(date) {
+  return new Date(date).toISOString().slice(0, 10)
+}
 
 function result(name, ok, detail = '') {
   if (ok) {
@@ -79,12 +90,19 @@ function section(title) {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 async function run() {
-  console.log(`\n🚀  Apollo API Test Suite`)
+  console.log(`\n🚀  DE WEBNET API Test Suite`)
   console.log(`    Target: ${BASE}`)
   console.log(`    User:   ${EMAIL}`)
   console.log(`    Tenant: ${TENANT}\n`)
 
   let token, tenantId, branchId, deptId, schedId, empId, holidayId, corrId, payrollRunId
+  let employeeUserId, employeeToken
+  let draftOnlyPayrollRunId
+  const payrollBaseDate = addDays(new Date(), 365 + (Number(runSuffix) % 120))
+  const payrollCutoffStart = toDateOnly(payrollBaseDate)
+  const payrollCutoffEnd = toDateOnly(addDays(payrollBaseDate, 14))
+  const draftOnlyCutoffStart = toDateOnly(addDays(payrollBaseDate, 16))
+  const draftOnlyCutoffEnd = toDateOnly(addDays(payrollBaseDate, 30))
 
   // ── 1. Health ──────────────────────────────────────────────────────────────
   section('Health')
@@ -93,7 +111,7 @@ async function run() {
     result('GET /api/health', r.status === 200 && r.body.status === 'ok', `status=${r.body.status}`)
   } catch (e) {
     result('GET /api/health', false, e.message + ' — is the server running on ' + BASE + '?')
-    console.log('\n⛔  Server unreachable. Start it first:\n    cd Apollo/server && node index.js\n')
+    console.log('\n⛔  Server unreachable. Start it first:\n    cd server && node index.js\n')
     process.exit(1)
   }
 
@@ -141,7 +159,7 @@ async function run() {
   // ── 4. Branches ────────────────────────────────────────────────────────────
   section('Branches')
   {
-    const r = await request('POST', '/api/branches', { name: 'Test Branch', code: 'TST', address: '123 Test St' }, token)
+    const r = await request('POST', '/api/branches', { name: `Test Branch ${runSuffix}`, code: `T${runSuffix}`, address: '123 Test St' }, token)
     const ok = r.status === 201 && r.body.data?._id
     result('POST /api/branches', ok, ok ? `id=${r.body.data._id}` : JSON.stringify(r.body))
     if (ok) branchId = r.body.data._id
@@ -158,7 +176,7 @@ async function run() {
   // ── 5. Departments ─────────────────────────────────────────────────────────
   section('Departments')
   {
-    const r = await request('POST', '/api/departments', { name: 'Test Dept', code: 'TDPT', branchId }, token)
+    const r = await request('POST', '/api/departments', { name: `Test Dept ${runSuffix}`, code: `D${runSuffix}`, branchId }, token)
     const ok = r.status === 201 && r.body.data?._id
     result('POST /api/departments', ok, ok ? `id=${r.body.data._id}` : JSON.stringify(r.body))
     if (ok) deptId = r.body.data._id
@@ -172,7 +190,7 @@ async function run() {
   section('Schedules')
   {
     const r = await request('POST', '/api/schedules', {
-      name: 'Standard', code: 'STD', type: 'fixed',
+      name: `Standard ${runSuffix}`, code: `S${runSuffix}`, type: 'fixed',
       shiftStart: '08:00', shiftEnd: '17:00',
       breakDurationMinutes: 60, gracePeriodMinutes: 5, restDays: [0, 6]
     }, token)
@@ -190,10 +208,11 @@ async function run() {
   if (branchId) {
     {
       const r = await request('POST', '/api/employees', {
-        employeeCode: `TEST-${Date.now().toString().slice(-5)}`,
+        employeeCode: `TEST-${runSuffix}`,
         firstName: 'Test', lastName: 'Employee',
-        email: `test.${Date.now()}@apollo.com`,
+        email: `test.${runSuffix}@dewebnet.com`,
         branchId,
+        scheduleId: schedId,
         employment: { status: 'active', type: 'regular', position: 'Tester', dateHired: '2025-01-01' }
       }, token)
       const ok = r.status === 201 && r.body.data?._id
@@ -227,6 +246,21 @@ async function run() {
     }, token)
     result('POST /api/salary', r.status === 201, JSON.stringify(r.body.data?._id || r.body.error || ''))
   } else skip('POST /api/salary', 'no empId')
+
+  if (empId && branchId) {
+    const r = await request('POST', '/api/users', {
+      email: `employee.${runSuffix}@dewebnet.com`,
+      password: 'employee123',
+      role: 'employee',
+      firstName: 'Portal',
+      lastName: 'User',
+      branchId,
+      employeeId: empId,
+    }, token)
+    const ok = r.status === 201 && r.body.data?._id
+    result('POST /api/users (employee self-service account)', ok, ok ? `id=${r.body.data._id}` : JSON.stringify(r.body))
+    if (ok) employeeUserId = r.body.data._id
+  } else skip('POST /api/users (employee self-service account)', 'missing employee or branch')
 
   // ── 9. Users ───────────────────────────────────────────────────────────────
   section('Users')
@@ -282,16 +316,34 @@ async function run() {
   section('Payroll')
   {
     const r = await request('POST', '/api/payroll', {
-      cutoffStart: '2026-03-01', cutoffEnd: '2026-03-15', notes: 'Test run'
+      cutoffStart: payrollCutoffStart, cutoffEnd: payrollCutoffEnd, notes: `Test run ${runSuffix}`, branchId
     }, token)
     const ok = r.status === 201 && r.body.data?._id
     result('POST /api/payroll (create run)', ok, ok ? `id=${r.body.data._id}` : JSON.stringify(r.body))
     if (ok) payrollRunId = r.body.data._id
   }
+  if (payrollRunId) {
+    const r = await request('POST', '/api/payroll', {
+      cutoffStart: payrollCutoffStart, cutoffEnd: payrollCutoffEnd, notes: `Duplicate test ${runSuffix}`, branchId
+    }, token)
+    result('POST /api/payroll — duplicate cutoff returns 409', r.status === 409)
+  } else skip('POST /api/payroll — duplicate cutoff returns 409', 'create failed')
   {
     const r = await request('GET', '/api/payroll', null, token)
     result('GET /api/payroll', r.status === 200, `count=${r.body.data?.length ?? '?'}`)
   }
+  {
+    const r = await request('POST', '/api/payroll', {
+      cutoffStart: draftOnlyCutoffStart, cutoffEnd: draftOnlyCutoffEnd, notes: `Second payroll test ${runSuffix}`, branchId
+    }, token)
+    const ok = r.status === 201 && r.body.data?._id
+    result('POST /api/payroll (second auto-computed run)', ok, ok ? `id=${r.body.data._id}` : JSON.stringify(r.body))
+    if (ok) draftOnlyPayrollRunId = r.body.data._id
+  }
+  if (draftOnlyPayrollRunId) {
+    const r = await request('PATCH', `/api/payroll/${draftOnlyPayrollRunId}/submit`, {}, token)
+    result('PATCH /api/payroll/:id/submit — accepts auto-computed runs', r.status === 200)
+  } else skip('PATCH /api/payroll/:id/submit — accepts auto-computed runs', 'second create failed')
   if (payrollRunId) {
     // Compute
     const rc = await request('POST', `/api/payroll/${payrollRunId}/compute`, {}, token)
@@ -322,7 +374,43 @@ async function run() {
     result('POST /api/attendance (manual log)', r.status === 201)
   } else skip('POST /api/attendance', 'no empId')
 
-  // ── 14. Kiosk (public — no JWT) ───────────────────────────────────────────
+  // ── 14. Self-service (employee role) ─────────────────────────────────────
+  section('Self-service')
+  if (employeeUserId) {
+    const loginRes = await request('POST', '/api/auth/login', { email: `employee.${runSuffix}@dewebnet.com`, password: 'employee123' })
+    const ok = loginRes.status === 200 && loginRes.body.token
+    result('POST /api/auth/login — employee self-service account', ok)
+    if (ok) employeeToken = loginRes.body.token
+  } else skip('POST /api/auth/login — employee self-service account', 'employee user was not created')
+  if (employeeToken) {
+    const profileRes = await request('GET', '/api/employees/me', null, employeeToken)
+    result('GET /api/employees/me', profileRes.status === 200 && profileRes.body.data?._id === empId)
+
+    const attendanceRes = await request('GET', '/api/attendance/me?limit=5', null, employeeToken)
+    result('GET /api/attendance/me', attendanceRes.status === 200 && Array.isArray(attendanceRes.body.data), `count=${attendanceRes.body.data?.length ?? '?'}`)
+
+    const correctionRes = await request('POST', '/api/corrections/me', {
+      date: new Date().toISOString().slice(0, 10),
+      reason: 'Forgot to time out',
+      notes: 'Employee self-service test',
+    }, employeeToken)
+    result('POST /api/corrections/me', correctionRes.status === 201, correctionRes.body.data?._id || JSON.stringify(correctionRes.body))
+
+    const myCorrectionsRes = await request('GET', '/api/corrections/me', null, employeeToken)
+    result('GET /api/corrections/me', myCorrectionsRes.status === 200 && Array.isArray(myCorrectionsRes.body.data), `count=${myCorrectionsRes.body.data?.length ?? '?'}`)
+
+    const payslipRes = await request('GET', '/api/payroll/me/payslips', null, employeeToken)
+    const hasPayslip = payslipRes.status === 200 && Array.isArray(payslipRes.body.data) && payslipRes.body.data.some(entry => entry.payslip?.employeeId === empId)
+    result('GET /api/payroll/me/payslips', hasPayslip, `count=${payslipRes.body.data?.length ?? '?'}`)
+  } else {
+    skip('GET /api/employees/me', 'employee login failed')
+    skip('GET /api/attendance/me', 'employee login failed')
+    skip('POST /api/corrections/me', 'employee login failed')
+    skip('GET /api/corrections/me', 'employee login failed')
+    skip('GET /api/payroll/me/payslips', 'employee login failed')
+  }
+
+  // ── 15. Kiosk (public — no JWT) ───────────────────────────────────────────
   section('Kiosk (public — no auth)')
   {
     const r = await request('GET', `/api/kiosk/employees?tenant=${TENANT}`)
@@ -347,6 +435,18 @@ async function run() {
 
   // ── Clean up — delete test data ────────────────────────────────────────────
   section('Cleanup')
+  if (draftOnlyPayrollRunId) {
+    const r = await request('DELETE', `/api/payroll/${draftOnlyPayrollRunId}`, null, token)
+    result('DELETE /api/payroll (draft-only test run)', r.status === 200)
+  }
+  if (payrollRunId) {
+    const r = await request('DELETE', `/api/payroll/${payrollRunId}`, null, token)
+    result('DELETE /api/payroll (workflow test run)', r.status === 200 || r.status === 403, r.status === 403 ? 'not deleted after approval' : '')
+  }
+  if (employeeUserId) {
+    const r = await request('DELETE', `/api/users/${employeeUserId}`, null, token)
+    result('DELETE /api/users (employee self-service account)', r.status === 200)
+  }
   if (empId) {
     const r = await request('DELETE', `/api/employees/${empId}`, null, token)
     result('DELETE /api/employees (test employee)', r.status === 200)

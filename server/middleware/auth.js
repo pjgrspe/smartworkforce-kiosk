@@ -16,9 +16,12 @@ function signToken(user) {
     {
       sub:      user._id.toString(),
       email:    user.email,
+      firstName: user.firstName || null,
+      lastName: user.lastName || null,
       role:     user.role,
       tenantId: user.tenantId ? user.tenantId.toString() : null,
-      branchId: user.branchId ? user.branchId.toString() : null
+      branchId: user.branchId ? user.branchId.toString() : null,
+      employeeId: user.employeeId ? user.employeeId.toString() : null
     },
     JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN || '12h' }
@@ -37,12 +40,14 @@ async function authenticate(req, res, next) {
   const token = authHeader.slice(7);
   try {
     const payload = jwt.verify(token, JWT_SECRET);
-    // Hydrate tenantId from DB when the token was signed before tenantId was set
-    if (!payload.tenantId) {
-      const user = await User.findById(payload.sub).select('tenantId branchId role').lean();
-      if (user && user.tenantId) {
-        payload.tenantId = user.tenantId.toString();
+    if (!payload.tenantId || payload.employeeId === undefined || !payload.firstName) {
+      const user = await User.findById(payload.sub).select('tenantId branchId role employeeId firstName lastName').lean();
+      if (user) {
+        payload.tenantId = user.tenantId ? user.tenantId.toString() : payload.tenantId;
         payload.branchId = user.branchId ? user.branchId.toString() : payload.branchId;
+        payload.employeeId = user.employeeId ? user.employeeId.toString() : null;
+        payload.firstName = user.firstName || payload.firstName || null;
+        payload.lastName = user.lastName || payload.lastName || null;
       }
     }
     req.user = payload;

@@ -1,10 +1,10 @@
 /**
- * PM2 Ecosystem Configuration for Apollo Facial Recognition System
+ * PM2 Ecosystem Configuration for DE WEBNET Facial Recognition System
  *
  * This configuration manages three services:
- * 1. apollo-server: Node.js WebSocket server and middleware
- * 2. apollo-ai: Python facial recognition engine
- * 3. apollo-web: React web application (Vite)
+ * 1. de-webnet-server: Node.js WebSocket server and middleware
+ * 2. de-webnet-ai: Python facial recognition engine
+ * 3. de-webnet-web: React web application (Vite)
  *
  * Usage:
  *   pm2 start pm2.ecosystem.config.js
@@ -17,7 +17,7 @@ const path = require('path');
 module.exports = {
   apps: [
     {
-      name: 'apollo-server',
+      name: 'de-webnet-server',
       script: 'index.js',
       cwd: path.join(__dirname, 'server'),
       instances: 1,
@@ -38,7 +38,7 @@ module.exports = {
       restart_delay: 4000
     },
     {
-      name: 'apollo-ai',
+      name: 'de-webnet-ai',
       // Cross-platform: Windows uses Scripts/python.exe, Linux uses bin/python
       script: process.platform === 'win32'
         ? path.join(__dirname, 'ai', 'venv', 'Scripts', 'python.exe')
@@ -64,7 +64,7 @@ module.exports = {
       interpreter: 'none'
     },
     {
-      name: 'apollo-web',
+      name: 'de-webnet-web',
       script: path.join(__dirname, 'web', 'node_modules', '.bin', 'vite'),
       args: 'preview --port 5173 --host',
       cwd: path.join(__dirname, 'web'),

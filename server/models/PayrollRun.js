@@ -42,6 +42,7 @@ const payslipItemSchema = new mongoose.Schema({
 
 const payrollRunSchema = new mongoose.Schema({
   tenantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Tenant', required: true },
+  branchId: { type: mongoose.Schema.Types.ObjectId, ref: 'Branch', default: null },
 
   cutoffStart: { type: Date, required: true },
   cutoffEnd:   { type: Date, required: true },
@@ -66,6 +67,6 @@ const payrollRunSchema = new mongoose.Schema({
   notes: { type: String }
 }, { timestamps: true });
 
-payrollRunSchema.index({ tenantId: 1, cutoffStart: 1, cutoffEnd: 1 });
+payrollRunSchema.index({ tenantId: 1, branchId: 1, cutoffStart: 1, cutoffEnd: 1 }, { unique: true });
 
 module.exports = mongoose.model('PayrollRun', payrollRunSchema);

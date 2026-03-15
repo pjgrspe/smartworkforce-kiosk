@@ -1,7 +1,7 @@
 {
-  "name": "apollo-web",
+  "name": "de-webnet-web",
   "version": "2.0.0",
-  "description": "React Web Application for Apollo Facial Recognition System",
+  "description": "React Web Application for DE WEBNET Facial Recognition System",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,9 +12,13 @@
   "dependencies": {
     "face-api.js": "^0.22.2",
     "framer-motion": "^10.16.16",
+    "jspdf": "^4.2.0",
+    "jszip": "^3.10.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.21.1"
+    "react-router-dom": "^6.21.1",
+    "xlsx": "^0.18.5",
+    "xlsx-js-style": "^1.2.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.43",

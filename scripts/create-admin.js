@@ -17,11 +17,11 @@ const bcrypt   = require('bcryptjs');
 const User     = require('../server/models/User');
 
 async function main() {
-  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/apollo';
+  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dewebnet';
   await mongoose.connect(uri);
   console.log('Connected to MongoDB:', uri);
 
-  const email    = process.env.ADMIN_EMAIL    || 'admin@apollo.local';
+  const email    = process.env.ADMIN_EMAIL    || 'admin@dewebnet.local';
   const password = process.env.ADMIN_PASSWORD || 'ChangeMe123!';
 
   const existing = await User.findOne({ email });

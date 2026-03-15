@@ -9,18 +9,89 @@ const bcrypt    = require('bcryptjs')
 const User      = require('../models/User')
 const Tenant    = require('../models/Tenant')
 
+const DEFAULT_PASSWORD = 'admin123'
+
+const DEFAULT_ROLE_ACCOUNTS = [
+  {
+    email: 'admin@dewebnet.com',
+    role: 'super_admin',
+    firstName: 'DE WEBNET',
+    lastName: 'Admin',
+    tenantScoped: true,
+  },
+  {
+    email: 'clientadmin@dewebnet.com',
+    role: 'client_admin',
+    firstName: 'Client',
+    lastName: 'Admin',
+    tenantScoped: true,
+  },
+  {
+    email: 'hr@dewebnet.com',
+    role: 'hr_payroll',
+    firstName: 'HR',
+    lastName: 'Payroll',
+    tenantScoped: true,
+  },
+  {
+    email: 'manager@dewebnet.com',
+    role: 'branch_manager',
+    firstName: 'Branch',
+    lastName: 'Manager',
+    tenantScoped: true,
+  },
+  {
+    email: 'employee@dewebnet.com',
+    role: 'employee',
+    firstName: 'Demo',
+    lastName: 'Employee',
+    tenantScoped: true,
+  },
+  {
+    email: 'auditor@dewebnet.com',
+    role: 'auditor',
+    firstName: 'System',
+    lastName: 'Auditor',
+    tenantScoped: true,
+  },
+]
+
+async function upsertRoleAccount(account, tenant) {
+  const existing = await User.findOne({ email: account.email })
+  const passwordHash = await bcrypt.hash(DEFAULT_PASSWORD, 12)
+
+  const payload = {
+    tenantId: account.tenantScoped ? tenant._id : null,
+    email: account.email,
+    passwordHash,
+    role: account.role,
+    firstName: account.firstName,
+    lastName: account.lastName,
+    isActive: true,
+  }
+
+  if (!existing) {
+    await User.create(payload)
+    console.log(`✅ ${account.role} created: ${account.email} / ${DEFAULT_PASSWORD}`)
+    return
+  }
+
+  await User.findByIdAndUpdate(existing._id, payload)
+  console.log(`ℹ️  ${account.role} updated: ${account.email} (password reset to ${DEFAULT_PASSWORD})`)
+}
+
 async function seed() {
   console.log('Connecting to MongoDB…')
   await mongoose.connect(process.env.MONGODB_URI)
   console.log('Connected.')
 
   // ── Tenant ─────────────────────────────────────────────────────────────────
-  let tenant = await Tenant.findOne({ code: 'APOLLO' })
+  let tenant = await Tenant.findOne({ code: 'DEWEBNET' })
   if (!tenant) {
     tenant = await Tenant.create({
-      name: 'Apollo Demo Company',
-      code: 'APOLLO',
-      contactEmail: 'admin@apollo.com',
+      name: 'DE WEBNET Demo Company',
+      code: 'DEWEBNET',
+      contactEmail: 'admin@dewebnet.com',
       subscription: { plan: 'enterprise', maxEmployees: 500, maxBranches: 10, isActive: true },
       settings: {
         timezone: 'Asia/Manila',
@@ -31,45 +102,24 @@ async function seed() {
         nightDiffWindow: { start: '22:00', end: '06:00' }
       }
     })
-    console.log('✅ Tenant created: APOLLO')
+    console.log('✅ Tenant created: DE WEBNET')
   } else {
-    console.log('ℹ️  Tenant already exists: APOLLO (id=' + tenant._id + ')')
+    console.log('ℹ️  Tenant already exists: DE WEBNET (id=' + tenant._id + ')')
   }
 
-  // ── Super Admin ────────────────────────────────────────────────────────────
-  const superEmail = 'admin@apollo.com'
-  let superUser = await User.findOne({ email: superEmail })
-  if (!superUser) {
-    const passwordHash = await bcrypt.hash('admin123', 12)
-    superUser = await User.create({
-      tenantId:     tenant._id,
-      email:        superEmail,
-      passwordHash,
-      role:         'super_admin',
-      firstName:    'Apollo',
-      lastName:     'Admin',
-      isActive:     true
-    })
-    console.log('✅ Super admin created: admin@apollo.com / admin123')
-  } else {
-    console.log('ℹ️  Super admin already exists:', superEmail)
-    // Fix role if needed
-    if (superUser.role !== 'super_admin') {
-      await User.findByIdAndUpdate(superUser._id, { role: 'super_admin' })
-      console.log('   → updated role to super_admin')
-    }
-    // Reset password
-    const passwordHash = await bcrypt.hash('admin123', 12)
-    await User.findByIdAndUpdate(superUser._id, { passwordHash, isActive: true, tenantId: tenant._id })
-    console.log('   → password reset to admin123')
+  // ── Default role accounts ──────────────────────────────────────────────────
+  for (const account of DEFAULT_ROLE_ACCOUNTS) {
+    await upsertRoleAccount(account, tenant)
   }
 
   console.log('\n═══════════════════════════════════')
   console.log('Seed complete!')
   console.log('  Login:    http://localhost:5173/login')
-  console.log('  Email:    admin@apollo.com')
-  console.log('  Password: admin123')
-  console.log('  Tenant code (kiosk): APOLLO')
+  console.log('  Default password for all seed accounts: admin123')
+  DEFAULT_ROLE_ACCOUNTS.forEach((account) => {
+    console.log(`  ${account.role.padEnd(14)} ${account.email}`)
+  })
+  console.log('  Tenant code (kiosk): DEWEBNET')
   console.log('═══════════════════════════════════\n')
 
   await mongoose.disconnect()

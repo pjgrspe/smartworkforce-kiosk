@@ -3,16 +3,26 @@
  * No JWT required. Authenticated by tenant code (query param or body).
  */
 
-const express       = require('express');
-const router        = express.Router();
-const Tenant        = require('../models/Tenant');
-const Employee      = require('../models/Employee');
-const AttendanceLog = require('../models/AttendanceLog');
-const logger        = require('../utils/logger');
+const express        = require('express');
+const mongoose       = require('mongoose');
+const router         = express.Router();
+const Tenant         = require('../models/Tenant');
+const Employee       = require('../models/Employee');
+const AttendanceLog  = require('../models/AttendanceLog');
+const logger         = require('../utils/logger');
+const offlineBuf     = require('../services/offline-buffer');
+
+const isDbOnline = () => mongoose.connection.readyState === 1;
+
+function normalizeTenantCode(raw) {
+  const normalized = (raw || '').toString().toUpperCase().trim();
+  if (normalized === 'APOLLO') return 'DEWEBNET';
+  return normalized;
+}
 
 // Middleware: resolve tenant by code
 const resolveTenant = async (req, res, next) => {
-  const code = (req.query.tenant || req.body?.tenant || '').toString().toUpperCase().trim();
+  const code = normalizeTenantCode(req.query.tenant || req.body?.tenant || '');
   if (!code) return res.status(400).json({ error: 'tenant code is required' });
 
   try {
@@ -28,16 +38,35 @@ const resolveTenant = async (req, res, next) => {
 
 // GET /api/kiosk/employees?tenant=ACME
 // Returns active employees with face-api.js descriptors (no sensitive data).
+// Falls back to SQLite cache when MongoDB is unreachable.
 router.get('/employees', resolveTenant, async (req, res) => {
+  if (!isDbOnline()) {
+    const cached = offlineBuf.getCachedEmployees(req.tenantId);
+    if (cached.length) {
+      logger.warn('GET /kiosk/employees: DB offline — serving employee cache (%d employees)', cached.length);
+      return res.json({ data: cached, offline: true });
+    }
+    return res.status(503).json({ error: 'Database offline and no local cache available' });
+  }
+
   try {
     const employees = await Employee.find(
       { tenantId: req.tenantId, isActive: true, 'employment.status': 'active' },
       'firstName lastName employeeCode branchId faceData.faceApiDescriptors faceData.enrollmentDate'
     ).lean();
 
+    // Update local cache so next offline session has fresh data
+    offlineBuf.cacheEmployees(req.tenantId, employees);
+
     return res.json({ data: employees });
   } catch (err) {
     logger.error('GET /kiosk/employees:', err.message);
+    // MongoDB query failed mid-request — try cache as last resort
+    const cached = offlineBuf.getCachedEmployees(req.tenantId);
+    if (cached.length) {
+      logger.warn('GET /kiosk/employees: DB error — serving employee cache (%d employees)', cached.length);
+      return res.json({ data: cached, offline: true });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -66,15 +95,33 @@ router.get('/recent', resolveTenant, async (req, res) => {
 
 // POST /api/kiosk/punch?tenant=ACME
 // Body: { tenant, employeeId, type, confidenceScore }
+// Queues to SQLite offline buffer when MongoDB is unreachable.
 router.post('/punch', resolveTenant, async (req, res) => {
+  const { employeeId, type, confidenceScore } = req.body;
+
+  if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+  if (!['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'].includes(type)) {
+    return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
+  }
+
+  const now = new Date();
+
+  // ── Offline path ────────────────────────────────────────────────────────────
+  if (!isDbOnline()) {
+    offlineBuf.queuePunch({
+      tenantId: req.tenantId, branchId: null,
+      employeeId, type, timestamp: now, confidenceScore,
+    });
+    logger.warn('Kiosk punch queued offline: %s %s', type, employeeId);
+    return res.status(201).json({
+      data: { employeeId, type, timestamp: now, source: 'face_kiosk', synced: false },
+      offline: true,
+      queued:  offlineBuf.pendingCount(),
+    });
+  }
+
+  // ── Online path ─────────────────────────────────────────────────────────────
   try {
-    const { employeeId, type, confidenceScore } = req.body;
-
-    if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
-    if (!['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'].includes(type)) {
-      return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
-    }
-
     // Verify employee belongs to this tenant
     const emp = await Employee.findOne(
       { _id: employeeId, tenantId: req.tenantId, isActive: true },
@@ -87,11 +134,11 @@ router.post('/punch', resolveTenant, async (req, res) => {
       branchId:        emp.branchId,
       employeeId,
       type,
-      timestamp:       new Date(),
+      timestamp:       now,
       source:          'face_kiosk',
       confidenceScore: confidenceScore != null ? Number(confidenceScore) : undefined,
       synced:          true,
-      syncedAt:        new Date(),
+      syncedAt:        now,
     }).save();
 
     const populated = await AttendanceLog.findById(log._id)
@@ -101,8 +148,17 @@ router.post('/punch', resolveTenant, async (req, res) => {
     logger.info(`Kiosk punch: ${type} - ${emp.firstName} ${emp.lastName}`);
     return res.status(201).json({ data: populated });
   } catch (err) {
-    logger.error('POST /kiosk/punch:', err.message);
-    return res.status(400).json({ error: err.message });
+    // MongoDB query failed after readyState check — queue as fallback
+    logger.error('POST /kiosk/punch DB error — buffering offline:', err.message);
+    offlineBuf.queuePunch({
+      tenantId: req.tenantId, branchId: null,
+      employeeId, type, timestamp: now, confidenceScore,
+    });
+    return res.status(201).json({
+      data: { employeeId, type, timestamp: now, source: 'face_kiosk', synced: false },
+      offline: true,
+      queued:  offlineBuf.pendingCount(),
+    });
   }
 });
 
