@@ -8,6 +8,7 @@ import {
   getDepartments, createDepartment, updateDepartment, deleteDepartment, verifyPassword,
 } from '../config/api'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
+import { useAuth } from '../contexts/AuthContext'
 import Modal from '../components/ui/Modal'
 import { Input, Textarea, Select } from '../components/ui/Input'
 import Button from '../components/ui/Button'
@@ -17,6 +18,9 @@ import Spinner from '../components/ui/Spinner'
 const th = 'label-caps px-4 py-2.5 text-left'
 
 export default function Branches() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin'
+
   const [tab, setTab] = useState('branches')
 
   const [branches, setBranches] = useState([])
@@ -207,13 +211,15 @@ export default function Branches() {
             </button>
           ))}
         </div>
-        <Button
-          variant="primary"
-          size="sm"
-          onClick={tab === 'branches' ? openBranchCreate : openDeptCreate}
-        >
-          + Add {tab === 'branches' ? 'Branch' : 'Department'}
-        </Button>
+        {(isSuperAdmin || tab !== 'branches') && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={tab === 'branches' ? openBranchCreate : openDeptCreate}
+          >
+            + Add {tab === 'branches' ? 'Branch' : 'Department'}
+          </Button>
+        )}
       </div>
 
       {/* Table */}

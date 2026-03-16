@@ -15,6 +15,7 @@ const VARIANTS = {
   danger:           'bg-signal-danger/10  text-signal-danger   border-signal-danger/25',
   info:             'bg-signal-info/10    text-signal-info     border-signal-info/25',
   blue:             'bg-accent/10         text-accent-400      border-accent/25',
+  brand:            'bg-brand-green/10    text-brand-green     border-brand-green/25',
   neutral:          'bg-navy-500/20       text-navy-200        border-navy-500/30',
   // Payroll statuses
   finalized:        'bg-signal-success/10 text-signal-success  border-signal-success/25',

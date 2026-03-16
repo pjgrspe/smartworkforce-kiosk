@@ -27,27 +27,60 @@ function humanizeFrequency(value) {
   return String(value || '').replace(/_/g, ' ')
 }
 
-// ── PH 2025 holidays seed data ────────────────────────────────────
-const PH_2025_HOLIDAYS = [
-  { name: "New Year's Day",              date: '2025-01-01', type: 'regular' },
-  { name: 'People Power Revolution',     date: '2025-02-25', type: 'special_non_working' },
-  { name: 'Araw ng Kagitingan',          date: '2025-04-09', type: 'regular' },
-  { name: 'Maundy Thursday',             date: '2025-04-17', type: 'regular' },
-  { name: 'Good Friday',                 date: '2025-04-18', type: 'regular' },
-  { name: 'Black Saturday',             date: '2025-04-19', type: 'special_non_working' },
-  { name: 'Labor Day',                   date: '2025-05-01', type: 'regular' },
-  { name: 'Independence Day',            date: '2025-06-12', type: 'regular' },
-  { name: 'Ninoy Aquino Day',            date: '2025-08-21', type: 'special_non_working' },
-  { name: 'National Heroes Day',         date: '2025-08-25', type: 'regular' },
-  { name: 'All Saints Day',              date: '2025-11-01', type: 'special_non_working' },
-  { name: 'All Souls Day',               date: '2025-11-02', type: 'special_non_working' },
-  { name: 'Bonifacio Day',               date: '2025-11-30', type: 'regular' },
-  { name: 'Feast of the Immaculate Conception', date: '2025-12-08', type: 'special_non_working' },
-  { name: 'Christmas Eve',               date: '2025-12-24', type: 'special_non_working' },
-  { name: 'Christmas Day',               date: '2025-12-25', type: 'regular' },
-  { name: 'Rizal Day',                   date: '2025-12-30', type: 'regular' },
-  { name: "New Year's Eve",              date: '2025-12-31', type: 'special_non_working' },
-]
+// ── PH holidays generator ─────────────────────────────────────────
+function easterDate(y) {
+  // Meeus/Jones/Butcher algorithm
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100
+  const d = Math.floor(b / 4), e = b % 4
+  const f = Math.floor((b + 8) / 25)
+  const g = Math.floor((b - f + 1) / 3)
+  const h = (19 * a + b - d - g + 15) % 30
+  const i = Math.floor(c / 4), k = c % 4
+  const l = (32 + 2 * e + 2 * i - h - k) % 7
+  const m = Math.floor((a + 11 * h + 22 * l) / 451)
+  const month = Math.floor((h + l - 7 * m + 114) / 31)
+  const day   = ((h + l - 7 * m + 114) % 31) + 1
+  return new Date(y, month - 1, day)
+}
+
+function lastMondayOfAugust(y) {
+  const d = new Date(y, 8, 0) // last day of August
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)) // go back to Monday
+  return d
+}
+
+function fmt(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
+function getPHHolidays(y) {
+  const easter = easterDate(y)
+  const maundy = new Date(easter); maundy.setDate(easter.getDate() - 3)
+  const goodFri = new Date(easter); goodFri.setDate(easter.getDate() - 2)
+  const blackSat = new Date(easter); blackSat.setDate(easter.getDate() - 1)
+  const heroesDay = lastMondayOfAugust(y)
+
+  return [
+    { name: "New Year's Day",                    date: `${y}-01-01`, type: 'regular' },
+    { name: 'People Power Revolution',           date: `${y}-02-25`, type: 'special_non_working' },
+    { name: 'Araw ng Kagitingan',                date: `${y}-04-09`, type: 'regular' },
+    { name: 'Maundy Thursday',                   date: fmt(maundy),  type: 'regular' },
+    { name: 'Good Friday',                       date: fmt(goodFri), type: 'regular' },
+    { name: 'Black Saturday',                    date: fmt(blackSat),type: 'special_non_working' },
+    { name: 'Labor Day',                         date: `${y}-05-01`, type: 'regular' },
+    { name: 'Independence Day',                  date: `${y}-06-12`, type: 'regular' },
+    { name: 'Ninoy Aquino Day',                  date: `${y}-08-21`, type: 'special_non_working' },
+    { name: 'National Heroes Day',               date: fmt(heroesDay), type: 'regular' },
+    { name: 'All Saints Day',                    date: `${y}-11-01`, type: 'special_non_working' },
+    { name: 'All Souls Day',                     date: `${y}-11-02`, type: 'special_non_working' },
+    { name: 'Bonifacio Day',                     date: `${y}-11-30`, type: 'regular' },
+    { name: 'Feast of the Immaculate Conception',date: `${y}-12-08`, type: 'special_non_working' },
+    { name: 'Christmas Eve',                     date: `${y}-12-24`, type: 'special_non_working' },
+    { name: 'Christmas Day',                     date: `${y}-12-25`, type: 'regular' },
+    { name: 'Rizal Day',                         date: `${y}-12-30`, type: 'regular' },
+    { name: "New Year's Eve",                    date: `${y}-12-31`, type: 'special_non_working' },
+  ]
+}
 
 function SalaryModal({ employees, initialEmployeeId = '', onClose, onDone }) {
   const [employeeId, setEmployeeId] = useState('')
@@ -570,12 +603,11 @@ function HolidaysTab() {
     await deleteHoliday(id); load()
   }
 
-  const seedPH2025 = async () => {
-    if (!window.confirm('This will add PH 2025 holidays. Continue?')) return
+  const seedPHHolidays = async () => {
+    if (!window.confirm(`This will add official PH ${year} holidays. Continue?`)) return
     setSeeding(true)
     try {
-      await bulkHolidays(PH_2025_HOLIDAYS)
-      setYear(2025)
+      await bulkHolidays(getPHHolidays(year))
       load()
     } catch (err) { setMsg(err.message) }
     finally { setSeeding(false) }
@@ -589,9 +621,9 @@ function HolidaysTab() {
           <input type="number" className="field-base h-8 w-24 text-xs"
             value={year} onChange={e => setYear(+e.target.value)} />
         </div>
-        <button onClick={seedPH2025} disabled={seeding}
+        <button onClick={seedPHHolidays} disabled={seeding}
           className="px-3 py-1.5 text-xs bg-signal-success text-white rounded-md hover:opacity-90 disabled:opacity-50">
-          {seeding ? 'Seeding...' : 'Seed PH 2025 Holidays'}
+          {seeding ? 'Seeding...' : `Seed PH ${year} Holidays`}
         </button>
         {msg && <span className="text-xs text-signal-danger">{msg}</span>}
       </div>

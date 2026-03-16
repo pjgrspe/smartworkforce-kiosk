@@ -4,11 +4,12 @@
  */
 
 const VARIANTS = {
-  primary:   'bg-accent hover:bg-accent-400 text-white border-transparent',
+  primary:   'bg-brand-green hover:bg-brand-green-400 text-navy-950 font-semibold border-transparent',
   secondary: 'bg-navy-600 hover:bg-navy-500 text-navy-100 border-navy-500 hover:border-navy-400',
   ghost:     'bg-transparent hover:bg-navy-700 text-navy-200 border-transparent hover:text-navy-50',
   danger:    'bg-transparent hover:bg-signal-danger/10 text-signal-danger border-transparent',
   outline:   'bg-transparent hover:bg-navy-700 text-navy-200 border-navy-500 hover:border-navy-400',
+  blue:      'bg-accent hover:bg-accent-400 text-white border-transparent',
 }
 
 const SIZES = {

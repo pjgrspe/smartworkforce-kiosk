@@ -308,7 +308,7 @@ async function runInboundCycle() {
       }
 
       logger.warn(`Inbound event apply failed (seq=${eventRow.seq}, retry=${retryCount}/${maxRetries})`);
-      break;
+      continue;
     }
   }
 
@@ -356,11 +356,24 @@ async function runOutboundCycle() {
   }
 }
 
+async function checkDeadLetterAlarm() {
+  const pool = getPool();
+  const { rows } = await pool.query('SELECT COUNT(*)::int AS cnt FROM sync_dead_letter');
+  const count = rows[0]?.cnt || 0;
+  const threshold = parseInt(process.env.SYNC_DEAD_LETTER_ALARM_THRESHOLD || '5', 10);
+  if (count >= threshold) {
+    logger.error(`SYNC ALERT: ${count} event(s) in dead letter queue — manual review required. Check sync_dead_letter table.`);
+  }
+}
+
 async function runSyncCycle() {
   if (!isEnabled()) return;
 
   await runOutboundCycle();
   await runInboundCycle();
+  await checkDeadLetterAlarm().catch((err) => {
+    logger.warn(`Dead letter alarm check failed: ${err.message}`);
+  });
 }
 
 function startSyncWorker() {
@@ -374,7 +387,7 @@ function startSyncWorker() {
   const intervalMs = parseInt(process.env.SYNC_WORKER_INTERVAL_MS || '10000', 10);
   timer = setInterval(() => {
     runSyncCycle().catch((err) => {
-      logger.error('Sync worker cycle failed:', err.message);
+      logger.error(`Sync worker cycle failed: ${err?.message || err?.cause?.message || String(err)}`);
     });
   }, intervalMs);
 

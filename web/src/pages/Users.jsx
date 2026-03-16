@@ -44,10 +44,12 @@ function UserModal({ initial, branches, employees, currentUser, onClose, onSave 
       }
     : { ...EMPTY }
   const [form, setForm]   = useState(initialForm)
+  const [oldPassword, setOldPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  const editingSelf = editing && initial?._id === currentUser?._id
 
-  const branchLocked = currentUser?.role !== 'super_admin' && !!currentUser?.branchId
+  const branchLocked = !['super_admin', 'client_admin'].includes(currentUser?.role) && !!currentUser?.branchId
   const roleOptions = currentUser?.role === 'super_admin'
     ? ROLES
     : ROLES.filter((role) => ['hr_payroll', 'branch_manager', 'employee', 'auditor'].includes(role.value))
@@ -80,10 +82,12 @@ function UserModal({ initial, branches, employees, currentUser, onClose, onSave 
   const submit = async () => {
     if (!form.email || !form.role) { setError('Email and role are required'); return }
     if (!editing && !form.password) { setError('Password is required for new users'); return }
+    if (editingSelf && form.password && !oldPassword) { setError('Current password is required to set a new password'); return }
     if (requiresEmployeeLink && !form.employeeId) { setError('Employee accounts must be linked to an employee profile'); return }
     setSaving(true); setError('')
     const payload = { ...form }
     if (!payload.password) delete payload.password
+    if (editingSelf && payload.password) payload.oldPassword = oldPassword
     if (!requiresEmployeeLink) delete payload.employeeId
     try { onSave(await (editing ? updateUser(initial._id, payload) : createUser(payload))) }
     catch (err) { setError(err.message); setSaving(false) }
@@ -117,6 +121,15 @@ function UserModal({ initial, branches, employees, currentUser, onClose, onSave 
           placeholder={editing ? '••••••••' : 'Required'}
           onChange={e => set('password', e.target.value)}
         />
+        {editingSelf && form.password && (
+          <Input
+            label="Current Password *"
+            type="password"
+            value={oldPassword}
+            placeholder="Enter your current password"
+            onChange={e => setOldPassword(e.target.value)}
+          />
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Select label="Role *" value={form.role}
             onChange={e => set('role', e.target.value)}>
@@ -337,14 +350,21 @@ export default function Users() {
                     </Badge>
                   </td>
                   <td className="px-4 py-2.5 text-right">
-                    <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'edit', user: u }) }}
-                      className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">
-                      Edit
-                    </button>
-                    <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'delete', id: u._id }) }}
-                      className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
-                      Delete
-                    </button>
+                    {(() => {
+                      const CLIENT_ADMIN_MANAGEABLE = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor']
+                      const canManage = user?.role === 'super_admin' || CLIENT_ADMIN_MANAGEABLE.includes(u.role)
+                      if (!canManage) return null
+                      return (<>
+                        <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'edit', user: u }) }}
+                          className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">
+                          Edit
+                        </button>
+                        <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'delete', id: u._id }) }}
+                          className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
+                          Delete
+                        </button>
+                      </>)
+                    })()}
                   </td>
                   </tr>
                 ))}
@@ -363,10 +383,17 @@ export default function Users() {
                 </p>
                 <p className="text-2xs text-navy-300 mt-1">{selectedUser.email}</p>
               </div>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => requestSensitiveAction({ type: 'edit', user: selectedUser })}>Edit User</Button>
-                <Button size="sm" variant="danger" onClick={() => requestSensitiveAction({ type: 'delete', id: selectedUser._id })}>Delete User</Button>
-              </div>
+              {(() => {
+                const CLIENT_ADMIN_MANAGEABLE = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor']
+                const canManage = user?.role === 'super_admin' || CLIENT_ADMIN_MANAGEABLE.includes(selectedUser.role)
+                if (!canManage) return null
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => requestSensitiveAction({ type: 'edit', user: selectedUser })}>Edit User</Button>
+                    <Button size="sm" variant="danger" onClick={() => requestSensitiveAction({ type: 'delete', id: selectedUser._id })}>Delete User</Button>
+                  </div>
+                )
+              })()}
             </div>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

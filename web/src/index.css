@@ -19,16 +19,23 @@
   --c-navy-100: 224 230 240;
   --c-navy-50: 237 241 247;
 
-  --c-accent: 59 130 246;
-  --c-accent-50: 239 246 255;
-  --c-accent-100: 219 234 254;
-  --c-accent-200: 191 219 254;
-  --c-accent-400: 96 165 250;
-  --c-accent-500: 59 130 246;
-  --c-accent-600: 37 99 235;
-  --c-accent-700: 29 78 216;
-  --c-accent-muted: 30 58 138;
-  --c-accent-subtle: 23 37 84;
+  /* Slightly more electric blue — closer to DE WEBNET's vivid blue */
+  --c-accent: 30 110 255;
+  --c-accent-50: 236 245 255;
+  --c-accent-100: 214 234 255;
+  --c-accent-200: 182 218 255;
+  --c-accent-400: 90 160 255;
+  --c-accent-500: 30 110 255;
+  --c-accent-600: 14 88 240;
+  --c-accent-700: 10 65 200;
+  --c-accent-muted: 18 46 130;
+  --c-accent-subtle: 12 28 80;
+
+  /* DE WEBNET brand green — lime/chartreuse signature colour */
+  --c-brand-green: 132 204 22;
+  --c-brand-green-400: 163 230 53;
+  --c-brand-green-muted: 54 83 18;
+  --c-brand-green-subtle: 26 46 6;
 
   --c-signal-success: 16 185 129;
   --c-signal-warning: 245 158 11;
@@ -48,6 +55,12 @@
   --c-navy-200: 39 58 84;
   --c-navy-100: 26 43 67;
   --c-navy-50: 23 38 60;
+
+  /* DE WEBNET brand green — saturated for light backgrounds */
+  --c-brand-green: 90 160 10;
+  --c-brand-green-400: 113 190 20;
+  --c-brand-green-muted: 220 245 185;
+  --c-brand-green-subtle: 240 252 225;
 }
 
 /* Raise contrast for commonly used muted navy text classes in both themes */
@@ -93,7 +106,7 @@
   }
 
   ::selection {
-    background-color: rgb(var(--c-accent) / 0.25);
+    background-color: rgb(var(--c-brand-green) / 0.18);
     color: rgb(var(--c-navy-50));
   }
 
@@ -107,7 +120,7 @@
   ::-webkit-scrollbar       { width: 5px; height: 5px; }
   ::-webkit-scrollbar-track { background: rgb(var(--c-navy-950)); }
   ::-webkit-scrollbar-thumb { background: rgb(var(--c-navy-500)); border-radius: 9999px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-navy-400)); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-brand-green) / 0.75); }
   ::-webkit-scrollbar-corner { background: rgb(var(--c-navy-950)); }
 
   /* Standard focus ring for keyboard navigation */
@@ -121,8 +134,12 @@
     @apply w-full h-9 px-3 text-sm
            bg-navy-600 border border-navy-500 text-navy-100
            placeholder:text-navy-300/85
-           focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent/30
            transition-colors duration-80 rounded-md;
+  }
+  .field-base:focus-visible {
+    border-color: rgb(var(--c-accent));
+    box-shadow: 0 0 0 1px rgb(var(--c-accent) / 0.25);
+    outline: none;
   }
 
   /* Shared table system */
@@ -183,7 +200,8 @@
 
   .run-nav-item-active {
     background: rgb(var(--c-navy-700) / 0.82);
-    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.18);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.18),
+                inset 2px 0 0 rgb(var(--c-brand-green) / 0.55);
   }
 
   [data-theme='light'] .run-nav-shell {
@@ -215,7 +233,8 @@
 
   [data-theme='light'] .run-nav-item-active {
     background: rgb(var(--c-navy-700) / 0.96);
-    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.26);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.26),
+                inset 2px 0 0 rgb(var(--c-brand-green) / 0.65);
   }
 }
 
@@ -232,7 +251,7 @@
 
   /* Category / section label caps — used consistently throughout UI */
   .label-caps {
-    @apply text-2xs font-medium uppercase tracking-[0.11em] text-navy-200;
+    @apply text-2xs font-medium uppercase tracking-[0.11em] text-navy-400;
   }
 
   /* Horizontal rule with consistent colour */

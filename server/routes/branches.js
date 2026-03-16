@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/branches
-router.post('/', authorize('super_admin'), async (req, res) => {
+router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
     const repo = getBranchRepository();
     const branch = await repo.createBranch({ user: req.user, payload: req.body });
@@ -28,7 +28,7 @@ router.post('/', authorize('super_admin'), async (req, res) => {
 });
 
 // PATCH /api/branches/:id
-router.patch('/:id', authorize('super_admin'), async (req, res) => {
+router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
     const repo = getBranchRepository();
     const branch = await repo.updateBranch({ user: req.user, id: req.params.id, patch: req.body });
@@ -40,7 +40,7 @@ router.patch('/:id', authorize('super_admin'), async (req, res) => {
 });
 
 // DELETE /api/branches/:id  (soft delete)
-router.delete('/:id', authorize('super_admin'), async (req, res) => {
+router.delete('/:id', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
     const repo = getBranchRepository();
     await repo.softDeleteBranch({ user: req.user, id: req.params.id });

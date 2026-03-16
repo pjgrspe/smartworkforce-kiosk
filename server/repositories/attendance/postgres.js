@@ -64,7 +64,7 @@ function buildListFilters({ user, employeeId, branchId, startDate, endDate }) {
     filters.push(`al.timestamp <= $${params.length}`);
   }
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(user.role) && user.branchId) {
     params.push(user.branchId);
     filters.push(`al.branch_id = $${params.length}`);
   }
@@ -133,7 +133,7 @@ async function listToday({ user }) {
   const params = [user.tenantId, today];
   const filters = ['al.tenant_id = $1', 'al.timestamp >= $2'];
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(user.role) && user.branchId) {
     params.push(user.branchId);
     filters.push(`al.branch_id = $${params.length}`);
   }
@@ -157,7 +157,7 @@ async function listToday({ user }) {
 
 async function createManualAttendance({ user, payload }) {
   const pool = getPool();
-  const effectiveBranchId = user.role !== 'super_admin' && user.branchId
+  const effectiveBranchId = !['super_admin', 'client_admin'].includes(user.role) && user.branchId
     ? user.branchId
     : (payload.branchId || null);
 

@@ -15,7 +15,7 @@ const { getEmployeeRepository } = require('../repositories/employee');
 const { getTenantRepository } = require('../repositories/tenant');
 
 async function resolvePayrollBranchId(req, requestedBranchId) {
-  if (req.user.role !== 'super_admin' && req.user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(req.user.role) && req.user.branchId) {
     return req.user.branchId;
   }
 
@@ -36,7 +36,7 @@ async function resolvePayrollBranchId(req, requestedBranchId) {
 
 function buildPayrollScope(req) {
   const scope = { tenantId: req.user.tenantId };
-  if (req.user.role !== 'super_admin' && req.user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(req.user.role) && req.user.branchId) {
     scope.branchId = req.user.branchId;
   }
   return scope;

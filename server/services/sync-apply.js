@@ -7,7 +7,26 @@ function resolveIncomingUpdatedAt(payload) {
 }
 
 async function applyEmployeeEvent(client, eventType, payload) {
-  if (!payload || !payload.id || !payload.tenantId || !payload.branchId) return;
+  if (!payload || !payload.id) return;
+
+  if (eventType === 'employee.face_enrolled') {
+    // Primary: match by UUID. Fallback: match by (tenant_id, employee_code) for
+    // branch employees whose UUID differs from HQ (pre-sync data).
+    const updated = await client.query(
+      `UPDATE employees SET face_data = $2, updated_at = NOW() WHERE id = $1 RETURNING id`,
+      [payload.id, payload.faceData || {}],
+    );
+    if (updated.rowCount === 0 && payload.tenantId && payload.employeeCode) {
+      await client.query(
+        `UPDATE employees SET face_data = $3, updated_at = NOW()
+         WHERE tenant_id = $1 AND employee_code = $2`,
+        [payload.tenantId, payload.employeeCode, payload.faceData || {}],
+      );
+    }
+    return;
+  }
+
+  if (!payload.tenantId || !payload.branchId) return;
   const incomingUpdatedAt = resolveIncomingUpdatedAt(payload);
 
   if (eventType === 'employee.deactivated') {
@@ -24,76 +43,134 @@ async function applyEmployeeEvent(client, eventType, payload) {
     return;
   }
 
-  await client.query(
-    `
-      INSERT INTO employees (
-        id, tenant_id, branch_id, department_id, employee_code,
-        first_name, middle_name, last_name, photo_url,
-        date_of_birth, gender, contact_number, email, address,
-        employment, gov_ids, bank, tax_status, dependents,
-        face_data, schedule_id, is_active, created_by, updated_at
-      )
-      VALUES (
-        $1, $2, $3, $4, $5,
-        $6, $7, $8, $9,
-        $10, $11, $12, $13, $14,
-        $15, $16, $17, $18, $19,
-        $20, $21, $22, $23, $24
-      )
-      ON CONFLICT (id)
-      DO UPDATE SET
-        tenant_id = EXCLUDED.tenant_id,
-        branch_id = EXCLUDED.branch_id,
-        department_id = EXCLUDED.department_id,
-        employee_code = EXCLUDED.employee_code,
-        first_name = EXCLUDED.first_name,
-        middle_name = EXCLUDED.middle_name,
-        last_name = EXCLUDED.last_name,
-        photo_url = EXCLUDED.photo_url,
-        date_of_birth = EXCLUDED.date_of_birth,
-        gender = EXCLUDED.gender,
-        contact_number = EXCLUDED.contact_number,
-        email = EXCLUDED.email,
-        address = EXCLUDED.address,
-        employment = EXCLUDED.employment,
-        gov_ids = EXCLUDED.gov_ids,
-        bank = EXCLUDED.bank,
-        tax_status = EXCLUDED.tax_status,
-        dependents = EXCLUDED.dependents,
-        face_data = EXCLUDED.face_data,
-        schedule_id = EXCLUDED.schedule_id,
-        is_active = EXCLUDED.is_active,
-        created_by = EXCLUDED.created_by,
-        updated_at = EXCLUDED.updated_at
-      WHERE employees.updated_at <= EXCLUDED.updated_at
-    `,
-    [
-      payload.id,
-      payload.tenantId,
-      payload.branchId,
-      payload.departmentId || null,
-      payload.employeeCode,
-      payload.firstName,
-      payload.middleName || null,
-      payload.lastName,
-      payload.photoUrl || null,
-      payload.dateOfBirth || null,
-      payload.gender || null,
-      payload.contactNumber || null,
-      payload.email || null,
-      payload.address || null,
-      payload.employment || {},
-      payload.govIds || {},
-      payload.bank || {},
-      payload.taxStatus || null,
-      payload.dependents == null ? 0 : payload.dependents,
-      payload.faceData || {},
-      payload.scheduleId || null,
-      payload.isActive == null ? true : Boolean(payload.isActive),
-      payload.createdBy || null,
-      incomingUpdatedAt,
-    ],
-  );
+  const params = [
+    payload.id,
+    payload.tenantId,
+    payload.branchId,
+    payload.departmentId || null,
+    payload.employeeCode,
+    payload.firstName,
+    payload.middleName || null,
+    payload.lastName,
+    payload.photoUrl || null,
+    payload.dateOfBirth || null,
+    payload.gender || null,
+    payload.contactNumber || null,
+    payload.email || null,
+    payload.address || null,
+    payload.employment || {},
+    payload.govIds || {},
+    payload.bank || {},
+    payload.taxStatus || null,
+    payload.dependents == null ? 0 : payload.dependents,
+    payload.faceData || {},
+    payload.scheduleId || null,
+    payload.isActive == null ? true : Boolean(payload.isActive),
+    payload.createdBy || null,
+    incomingUpdatedAt,
+  ];
+
+  // Use subqueries for FK fields so missing references degrade to NULL
+  // instead of throwing a foreign key violation error.
+  try {
+    await client.query(
+      `
+        INSERT INTO employees (
+          id, tenant_id, branch_id, department_id, employee_code,
+          first_name, middle_name, last_name, photo_url,
+          date_of_birth, gender, contact_number, email, address,
+          employment, gov_ids, bank, tax_status, dependents,
+          face_data, schedule_id, is_active, created_by, updated_at
+        )
+        VALUES (
+          $1, $2,
+          (SELECT id FROM branches    WHERE id = $3  LIMIT 1),
+          (SELECT id FROM departments WHERE id = $4  LIMIT 1),
+          $5,
+          $6, $7, $8, $9,
+          $10, $11, $12, $13, $14,
+          $15, $16, $17, $18, $19,
+          $20,
+          (SELECT id FROM schedules   WHERE id = $21 LIMIT 1),
+          $22, $23, $24
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+          tenant_id = EXCLUDED.tenant_id,
+          branch_id = EXCLUDED.branch_id,
+          department_id = EXCLUDED.department_id,
+          employee_code = EXCLUDED.employee_code,
+          first_name = EXCLUDED.first_name,
+          middle_name = EXCLUDED.middle_name,
+          last_name = EXCLUDED.last_name,
+          photo_url = EXCLUDED.photo_url,
+          date_of_birth = EXCLUDED.date_of_birth,
+          gender = EXCLUDED.gender,
+          contact_number = EXCLUDED.contact_number,
+          email = EXCLUDED.email,
+          address = EXCLUDED.address,
+          employment = EXCLUDED.employment,
+          gov_ids = EXCLUDED.gov_ids,
+          bank = EXCLUDED.bank,
+          tax_status = EXCLUDED.tax_status,
+          dependents = EXCLUDED.dependents,
+          face_data = EXCLUDED.face_data,
+          schedule_id = EXCLUDED.schedule_id,
+          is_active = EXCLUDED.is_active,
+          created_by = EXCLUDED.created_by,
+          updated_at = EXCLUDED.updated_at
+        WHERE employees.updated_at <= EXCLUDED.updated_at
+      `,
+      params,
+    );
+  } catch (err) {
+    // An employee with the same (tenant_id, employee_code) exists locally with a different
+    // UUID (branch data pre-dates sync). Fall back to updating that row in-place so the
+    // employee data stays current. The local UUID is preserved intentionally to keep
+    // existing FK references (attendance_logs etc.) intact.
+    if (err.code === '23505' && err.constraint === 'employees_tenant_id_employee_code_key') {
+      await client.query(
+        `
+          UPDATE employees
+          SET
+            first_name = $1, middle_name = $2, last_name = $3,
+            photo_url = $4, date_of_birth = $5, gender = $6,
+            contact_number = $7, email = $8, address = $9,
+            employment = $10, gov_ids = $11, bank = $12,
+            tax_status = $13, dependents = $14, face_data = $15,
+            schedule_id = (SELECT id FROM schedules WHERE id = $16 LIMIT 1),
+            is_active = $17, created_by = $18, updated_at = $19
+          WHERE tenant_id = $20 AND employee_code = $21
+            AND updated_at <= $19
+        `,
+        [
+          payload.firstName,
+          payload.middleName || null,
+          payload.lastName,
+          payload.photoUrl || null,
+          payload.dateOfBirth || null,
+          payload.gender || null,
+          payload.contactNumber || null,
+          payload.email || null,
+          payload.address || null,
+          payload.employment || {},
+          payload.govIds || {},
+          payload.bank || {},
+          payload.taxStatus || null,
+          payload.dependents == null ? 0 : payload.dependents,
+          payload.faceData || {},
+          payload.scheduleId || null,
+          payload.isActive == null ? true : Boolean(payload.isActive),
+          payload.createdBy || null,
+          incomingUpdatedAt,
+          payload.tenantId,
+          payload.employeeCode,
+        ],
+      );
+    } else {
+      throw err;
+    }
+  }
 }
 
 async function applyAttendanceEvent(client, eventType, payload) {
@@ -107,7 +184,7 @@ async function applyAttendanceEvent(client, eventType, payload) {
         synced, synced_at, local_id, correction_ref, notes
       )
       VALUES (
-        $1, $2, $3, $4, $5,
+        $1, COALESCE($2, (SELECT tenant_id FROM employees WHERE id = $4 LIMIT 1)), $3, $4, $5,
         $6, $7, $8, $9, $10,
         TRUE, NOW(), NULL, NULL, $11
       )
@@ -116,7 +193,7 @@ async function applyAttendanceEvent(client, eventType, payload) {
     `,
     [
       payload.id,
-      payload.tenantId,
+      payload.tenantId || null,
       payload.branchId || null,
       payload.employeeId,
       payload.timestamp,

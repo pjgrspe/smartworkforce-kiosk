@@ -5,7 +5,8 @@
 import { Fragment, useState, useEffect, useCallback, useRef } from 'react'
 import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
-  getBranches, getDepartments, getSchedules, enrollFace, verifyPassword
+  getBranches, getDepartments, getSchedules, enrollFace, verifyPassword,
+  uploadEmployeeDocument, deleteEmployeeDocument, downloadEmployeeDocument,
 } from '../config/api'
 import { useAuth } from '../contexts/AuthContext'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
@@ -17,7 +18,7 @@ import Spinner from '../components/ui/Spinner'
 const EMPTY_FORM = {
   employeeCode: '', firstName: '', middleName: '', lastName: '',
   email: '', contactNumber: '', address: '', dateOfBirth: '', gender: '',
-  branchId: '', departmentId: '', scheduleId: '',
+  branchId: '', departmentId: '', scheduleId: '', reportsToId: '',
   employment: {
     status: 'active', type: 'regular', position: '',
     dateHired: '', regularizationDate: ''
@@ -49,6 +50,16 @@ const STATUS_VARIANT = {
 function hasFaceEnrollment(employee) {
   return (employee?.faceData?.faceApiDescriptors?.length || employee?.faceData?.encodings?.length || 0) > 0
 }
+
+const DOC_CATEGORIES = [
+  { value: 'tin',        label: 'TIN' },
+  { value: 'sss',        label: 'SSS' },
+  { value: 'philhealth', label: 'PhilHealth' },
+  { value: 'pagibig',    label: 'Pag-IBIG' },
+  { value: 'bank',       label: 'Bank' },
+  { value: 'employment', label: 'Employment' },
+  { value: 'other',      label: 'Other' },
+]
 
 function SectionHeading({ children }) {
   return <h3 className="label-caps mt-5 mb-3 text-navy-300">{children}</h3>
@@ -455,6 +466,61 @@ export default function Employees() {
   const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
 
+  const [reportsToSearch, setReportsToSearch] = useState('')
+  const [reportsToOpen, setReportsToOpen] = useState(false)
+
+  const [pendingDocs, setPendingDocs] = useState([])     // queued for upload on save
+  const [deletedDocIds, setDeletedDocIds] = useState([]) // marked for removal on save
+  const [docPending, setDocPending] = useState(null)     // file being configured before queueing
+  const [docError, setDocError] = useState('')
+
+  const handleDocFileSelect = (e) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+
+    const ALLOWED = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf']
+    if (!ALLOWED.includes(file.type)) {
+      setDocError('Only JPEG, PNG, WebP, and PDF files are allowed.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setDocError('File must be 5 MB or smaller.')
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const base64 = ev.target.result.split(',')[1]
+      setDocError('')
+      setDocPending({ fileName: file.name, mimeType: file.type, size: file.size, data: base64, category: 'other', label: '' })
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleQueueDoc = () => {
+    if (!docPending) return
+    setPendingDocs(prev => [...prev, { ...docPending }])
+    setDocPending(null)
+    setDocError('')
+  }
+
+  const handleUnqueueDoc = (idx) => {
+    setPendingDocs(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  const handleMarkDocDelete = (docId) => {
+    setDeletedDocIds(prev => prev.includes(docId) ? prev : [...prev, docId])
+  }
+
+  const handleDocDownload = async (doc) => {
+    try {
+      await downloadEmployeeDocument(selectedEmployee._id, doc.id, doc.fileName)
+    } catch (err) {
+      setDocError(err.message || 'Download failed.')
+    }
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -484,6 +550,12 @@ export default function Employees() {
     setEditTarget(null)
     setForm(canManageBranches ? EMPTY_FORM : { ...EMPTY_FORM, branchId: userBranchId })
     setError('')
+    setReportsToSearch('')
+    setReportsToOpen(false)
+    setPendingDocs([])
+    setDeletedDocIds([])
+    setDocPending(null)
+    setDocError('')
     setShowModal(true)
   }
 
@@ -491,6 +563,12 @@ export default function Employees() {
     setEditTarget(emp._id)
     setForm(deepMerge(EMPTY_FORM, emp))
     setError('')
+    setReportsToSearch('')
+    setReportsToOpen(false)
+    setPendingDocs([])
+    setDeletedDocIds([])
+    setDocPending(null)
+    setDocError('')
     setShowModal(true)
   }
 
@@ -510,13 +588,13 @@ export default function Employees() {
   }
 
   const performDelete = async (id) => {
-    if (!window.confirm('Delete this employee?')) return
     await deleteEmployee(id)
     load()
   }
 
   const requestDelete = (id) => {
     if (hasFreshSensitiveAuth()) {
+      if (!window.confirm('Delete this employee?')) return
       performDelete(id)
       return
     }
@@ -589,11 +667,28 @@ export default function Employees() {
     setSaving(true)
     try {
       const payload = canManageBranches ? form : { ...form, branchId: userBranchId }
+      let empId = editTarget
       if (editTarget) {
         await updateEmployee(editTarget, payload)
       } else {
-        await createEmployee(payload)
+        const res = await createEmployee(payload)
+        empId = res?.data?._id
       }
+
+      // Upload queued docs
+      if (empId && pendingDocs.length > 0) {
+        for (const doc of pendingDocs) {
+          await uploadEmployeeDocument(empId, doc)
+        }
+      }
+
+      // Process deletions
+      if (empId && deletedDocIds.length > 0) {
+        for (const docId of deletedDocIds) {
+          await deleteEmployeeDocument(empId, docId)
+        }
+      }
+
       setShowModal(false)
       load()
     } catch (err) {
@@ -839,6 +934,10 @@ export default function Employees() {
                 <p className="mt-2 text-xs text-navy-100">Branch: {branchById.get(selectedEmployee.branchId?._id || selectedEmployee.branchId)?.name || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300">Department: {deptById.get(selectedEmployee.departmentId?._id || selectedEmployee.departmentId)?.name || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300">Schedule: {scheduleById.get(selectedEmployee.scheduleId?._id || selectedEmployee.scheduleId)?.name || '—'}</p>
+                {(() => {
+                  const sup = employees.find(e => e._id === selectedEmployee.reportsToId)
+                  return <p className="mt-1 text-xs text-navy-300">Reports To: {sup ? `${sup.firstName} ${sup.lastName}` : '—'}</p>
+                })()}
               </div>
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
@@ -853,6 +952,29 @@ export default function Employees() {
                 <p className="label-caps">Bank</p>
                 <p className="mt-2 text-xs text-navy-100">Bank: {selectedEmployee.bank?.bankName || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300">Account #: {selectedEmployee.bank?.accountNumber || '—'}</p>
+              </div>
+
+              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
+                <p className="label-caps">Documents</p>
+                {(!selectedEmployee.documents?.length) ? (
+                  <p className="mt-2 text-2xs text-navy-400">No documents uploaded.</p>
+                ) : (
+                  <div className="mt-2 space-y-2">
+                    {selectedEmployee.documents.map(doc => {
+                      const CAT = { tin: 'TIN', sss: 'SSS', philhealth: 'PhilHealth', pagibig: 'Pag-IBIG', bank: 'Bank', employment: 'Employment', other: 'Other' }
+                      const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
+                      return (
+                        <div key={doc.id} className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-2xs font-medium text-navy-100 truncate">{doc.label || doc.fileName}</p>
+                            <p className="text-2xs text-navy-400">{CAT[doc.category] || doc.category}{kb ? ` · ${kb}` : ''}</p>
+                          </div>
+                          <Button variant="ghost" size="xs" onClick={() => handleDocDownload(doc)}>Download</Button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
@@ -946,6 +1068,69 @@ export default function Employees() {
                 </select>
               </Field>
               <Field label="Date Hired"><input type="date" className="field-base" value={form.employment?.dateHired?.slice(0, 10) || ''} onChange={e => setField('employment.dateHired', e.target.value)} /></Field>
+              <Field label="Reports To">
+                {(() => {
+                  const selected = employees.find(e => e._id === form.reportsToId)
+                  const candidates = employees
+                    .filter(e => e._id !== editTarget)
+                    .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+                  const q = reportsToSearch.toLowerCase()
+                  const filtered = q
+                    ? candidates.filter(e =>
+                        `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+                        e.employment?.position?.toLowerCase().includes(q) ||
+                        e.employeeCode?.toLowerCase().includes(q)
+                      )
+                    : candidates
+                  return (
+                    <div className="relative">
+                      {selected && !reportsToOpen ? (
+                        <div className="field-base flex items-center justify-between gap-2 cursor-pointer"
+                          onClick={() => { setReportsToOpen(true); setReportsToSearch('') }}>
+                          <span className="text-navy-100 text-xs truncate">
+                            {selected.firstName} {selected.lastName}{selected.employment?.position ? ` — ${selected.employment.position}` : ''}
+                          </span>
+                          <button type="button" onClick={(ev) => { ev.stopPropagation(); setField('reportsToId', ''); setReportsToOpen(false) }}
+                            className="text-navy-400 hover:text-signal-danger text-sm leading-none shrink-0">×</button>
+                        </div>
+                      ) : (
+                        <input
+                          className="field-base w-full"
+                          placeholder="Search by name, position, or code..."
+                          value={reportsToSearch}
+                          autoFocus={reportsToOpen}
+                          onChange={e => { setReportsToSearch(e.target.value); setReportsToOpen(true) }}
+                          onFocus={() => setReportsToOpen(true)}
+                          onBlur={() => setTimeout(() => setReportsToOpen(false), 150)}
+                        />
+                      )}
+                      {reportsToOpen && (
+                        <div className="absolute z-20 top-full left-0 right-0 mt-0.5 bg-navy-700 border border-navy-500 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                          <div
+                            className="px-3 py-2 text-xs text-navy-400 hover:bg-navy-600 cursor-pointer"
+                            onMouseDown={() => { setField('reportsToId', ''); setReportsToOpen(false); setReportsToSearch('') }}
+                          >
+                            None / Direct to management
+                          </div>
+                          {filtered.length === 0 ? (
+                            <div className="px-3 py-2 text-xs text-navy-500">No employees found</div>
+                          ) : filtered.map(e => (
+                            <div
+                              key={e._id}
+                              className="px-3 py-2 text-xs text-navy-100 hover:bg-navy-600 cursor-pointer"
+                              onMouseDown={() => { setField('reportsToId', e._id); setReportsToOpen(false); setReportsToSearch('') }}
+                            >
+                              {e.firstName} {e.lastName}
+                              {e.employment?.position && <span className="text-navy-400"> — {e.employment.position}</span>}
+                              <span className="text-navy-500 ml-1 font-mono text-2xs">{e.employeeCode}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+              </Field>
             </div>
 
             <SectionHeading>Government IDs</SectionHeading>
@@ -961,6 +1146,79 @@ export default function Employees() {
               <Field label="Bank Name"><input className="field-base" value={form.bank?.bankName || ''} onChange={e => setField('bank.bankName', e.target.value)} /></Field>
               <Field label="Account Number"><input className="field-base" value={form.bank?.accountNumber || ''} onChange={e => setField('bank.accountNumber', e.target.value)} /></Field>
             </div>
+
+            <SectionHeading>Documents</SectionHeading>
+            {docError && (
+              <p className="mb-2 text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">{docError}</p>
+            )}
+
+            {/* Existing docs (edit only) */}
+            {editTarget && (() => {
+              const existing = employees.find(e => e._id === editTarget)?.documents || []
+              const visible = existing.filter(d => !deletedDocIds.includes(d.id))
+              return visible.length > 0 && (
+                <div className="mb-3 divide-y divide-navy-500/30 rounded-md border border-navy-500 overflow-hidden">
+                  {visible.map(doc => {
+                    const catLabel = DOC_CATEGORIES.find(c => c.value === doc.category)?.label || doc.category
+                    const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
+                    return (
+                      <div key={doc.id} className="flex items-center justify-between gap-3 px-3 py-2 bg-navy-800/50">
+                        <div className="min-w-0">
+                          <p className="text-xs text-navy-100 truncate">{doc.label || doc.fileName}</p>
+                          <p className="text-2xs text-navy-400">{catLabel}{kb ? ` · ${kb}` : ''}</p>
+                        </div>
+                        <Button type="button" variant="danger" size="xs" onClick={() => handleMarkDocDelete(doc.id)}>Remove</Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )
+            })()}
+
+            {/* Queued new docs */}
+            {pendingDocs.length > 0 && (
+              <div className="mb-3 divide-y divide-navy-500/30 rounded-md border border-accent/30 overflow-hidden">
+                {pendingDocs.map((doc, idx) => {
+                  const catLabel = DOC_CATEGORIES.find(c => c.value === doc.category)?.label || doc.category
+                  const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
+                  return (
+                    <div key={idx} className="flex items-center justify-between gap-3 px-3 py-2 bg-navy-800/50">
+                      <div className="min-w-0">
+                        <p className="text-xs text-navy-100 truncate">{doc.label || doc.fileName}</p>
+                        <p className="text-2xs text-accent/70">{catLabel}{kb ? ` · ${kb}` : ''} · pending</p>
+                      </div>
+                      <Button type="button" variant="danger" size="xs" onClick={() => handleUnqueueDoc(idx)}>Remove</Button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* File picker / category form */}
+            {docPending ? (
+              <div className="rounded-md border border-navy-500 bg-navy-800/60 px-3 py-3 space-y-2">
+                <p className="text-2xs text-navy-100 truncate font-medium">{docPending.fileName}</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Category">
+                    <select className="field-base" value={docPending.category} onChange={e => setDocPending(p => ({ ...p, category: e.target.value }))}>
+                      {DOC_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Label (optional)">
+                    <input className="field-base" placeholder="e.g. TIN Card front" value={docPending.label} onChange={e => setDocPending(p => ({ ...p, label: e.target.value }))} />
+                  </Field>
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button type="button" variant="blue" size="sm" onClick={handleQueueDoc}>Add to Queue</Button>
+                  <Button type="button" variant="outline" size="sm" onClick={() => { setDocPending(null); setDocError('') }}>Cancel</Button>
+                </div>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 w-fit cursor-pointer text-2xs text-accent hover:text-accent-400 transition-colors">
+                <span>+ Attach file</span>
+                <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleDocFileSelect} />
+              </label>
+            )}
           </div>
         </Modal>
       )}

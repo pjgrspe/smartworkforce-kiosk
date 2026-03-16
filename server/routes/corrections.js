@@ -151,7 +151,7 @@ function inferReasonCode(reasonCode, reasonText) {
 }
 
 async function getScopedEmployeeIds(req) {
-  if (req.user.role === 'super_admin' || !req.user.branchId) return null;
+  if (['super_admin', 'client_admin'].includes(req.user.role) || !req.user.branchId) return null;
 
   const employeeRepo = getEmployeeRepository();
   const employees = await employeeRepo.listActive({ user: req.user });
@@ -251,7 +251,7 @@ router.post('/', authorize(...REVIEWER_ROLES), async (req, res) => {
       return res.status(404).json({ error: 'Employee not found for current tenant' });
     }
 
-    if (req.user.role !== 'super_admin' && req.user.branchId && String(employee.branchId) !== String(req.user.branchId)) {
+    if (!['super_admin', 'client_admin'].includes(req.user.role) && req.user.branchId && String(employee.branchId) !== String(req.user.branchId)) {
       return res.status(403).json({ error: 'You can only submit corrections for your assigned branch' });
     }
 

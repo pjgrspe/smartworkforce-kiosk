@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "install:all": "npm install && cd server && npm install && cd ../web && npm install && cd ../ai && pip install -r requirements.txt",
+    "dev": "concurrently --names \"server,web\" --prefix-colors \"cyan,magenta\" \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "cd server && npm run dev",
     "dev:web": "cd web && npm run dev",
     "dev:ai": "cd ai && python main.py",
@@ -25,6 +26,7 @@
     "setup:windows:start": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -StartServices"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "pm2": "^5.3.0"
   },
   "engines": {

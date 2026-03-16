@@ -81,7 +81,7 @@ function RunListItem({ run, onSelect, selected, branches }) {
 
 // ── New Run Modal ─────────────────────────────────────────────────────
 function NewRunModal({ onClose, onCreate, onCreated, branches, currentUser }) {
-  const branchLocked = currentUser?.role !== 'super_admin' && !!currentUser?.branchId
+  const branchLocked = !['super_admin', 'client_admin'].includes(currentUser?.role) && !!currentUser?.branchId
   const [form, setForm]   = useState({
     cutoffStart: '',
     cutoffEnd: '',

@@ -38,6 +38,8 @@ export default function Attendance() {
     from: new Date().toISOString().slice(0, 10),
     to:   new Date().toISOString().slice(0, 10),
   })
+  const [empSearch, setEmpSearch] = useState('')
+  const [empPickerOpen, setEmpPickerOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [sortBy, setSortBy] = useState('timestamp')
   const [sortDir, setSortDir] = useState('desc')
@@ -316,16 +318,60 @@ export default function Attendance() {
         </div>
         <div className="flex flex-col gap-1">
           <label className="label-caps">Employee</label>
-          <select className={fieldCls}
-            value={filters.employeeId}
-            onChange={e => setFilters(p => ({ ...p, employeeId: e.target.value }))}>
-            <option value="">All employees</option>
-            {employees.map(e => (
-              <option key={e._id} value={e._id}>
-                {e.firstName} {e.lastName}
-              </option>
-            ))}
-          </select>
+          {(() => {
+            const selected = employees.find(e => e._id === filters.employeeId)
+            const q = empSearch.toLowerCase()
+            const filtered = q
+              ? employees.filter(e =>
+                  `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+                  e.employeeCode?.toLowerCase().includes(q)
+                )
+              : employees
+            return (
+              <div className="relative">
+                {selected && !empPickerOpen ? (
+                  <div className={`${fieldCls} flex items-center justify-between gap-2 cursor-pointer w-44`}
+                    onClick={() => { setEmpPickerOpen(true); setEmpSearch('') }}>
+                    <span className="truncate">{selected.firstName} {selected.lastName}</span>
+                    <button type="button"
+                      onClick={ev => { ev.stopPropagation(); setFilters(p => ({ ...p, employeeId: '' })); setEmpPickerOpen(false) }}
+                      className="text-navy-400 hover:text-signal-danger leading-none shrink-0">×</button>
+                  </div>
+                ) : (
+                  <input
+                    className={`${fieldCls} w-44`}
+                    placeholder="All employees"
+                    value={empSearch}
+                    autoFocus={empPickerOpen}
+                    onChange={e => { setEmpSearch(e.target.value); setEmpPickerOpen(true) }}
+                    onFocus={() => setEmpPickerOpen(true)}
+                    onBlur={() => setTimeout(() => setEmpPickerOpen(false), 150)}
+                  />
+                )}
+                {empPickerOpen && (
+                  <div className="absolute z-20 top-full left-0 mt-0.5 w-56 bg-navy-700 border border-navy-500 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    <div className="px-3 py-2 text-xs text-navy-400 hover:bg-navy-600 cursor-pointer"
+                      onMouseDown={() => { setFilters(p => ({ ...p, employeeId: '' })); setEmpPickerOpen(false); setEmpSearch('') }}>
+                      All employees
+                    </div>
+                    {filtered.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-navy-500">No employees found</div>
+                    ) : filtered
+                        .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+                        .map(e => (
+                          <div key={e._id}
+                            className="px-3 py-2 text-xs text-navy-100 hover:bg-navy-600 cursor-pointer"
+                            onMouseDown={() => { setFilters(p => ({ ...p, employeeId: e._id })); setEmpPickerOpen(false); setEmpSearch('') }}>
+                            {e.firstName} {e.lastName}
+                            <span className="text-navy-500 ml-1 font-mono text-2xs">{e.employeeCode}</span>
+                          </div>
+                        ))
+                    }
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
         <div className="flex flex-col gap-1">
           <label className="label-caps">Sort By</label>
@@ -338,7 +384,6 @@ export default function Attendance() {
             <option value="employee">Employee</option>
             <option value="type">Type</option>
             <option value="source">Source</option>
-            <option value="confidence">Confidence</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -376,7 +421,7 @@ export default function Attendance() {
               <table className="table-base">
                 <thead className="sticky top-0 z-10">
                   <tr className="table-head-row">
-                  {['Employee', 'Date', 'Time', 'Type', 'Source', 'Confidence', 'Exceptions'].map(h => (
+                  {['Employee', 'Date', 'Time', 'Type', 'Source', 'Exceptions'].map(h => (
                     <th key={h} className="table-th">{h}</th>
                   ))}
                   </tr>
@@ -384,7 +429,7 @@ export default function Attendance() {
                 <tbody>
                   {paginated.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="table-empty">
+                      <td colSpan={6} className="table-empty">
                         No logs found for the selected range.
                       </td>
                     </tr>
@@ -407,11 +452,6 @@ export default function Attendance() {
                       </td>
                       <td className="px-4 py-2.5 text-navy-300">
                         {SOURCE_LABEL[log.source] ?? log.source ?? '—'}
-                      </td>
-                      <td className="px-4 py-2.5 font-mono tabular text-navy-300">
-                        {log.confidenceScore != null
-                          ? `${(log.confidenceScore * 100).toFixed(0)}%`
-                          : '—'}
                       </td>
                       <td className="px-4 py-2.5">
                         <div className="flex gap-1 flex-wrap">

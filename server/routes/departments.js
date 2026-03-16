@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
 // POST /api/departments
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin' && req.user.branchId && req.body.branchId !== req.user.branchId) {
+    if (!['super_admin', 'client_admin'].includes(req.user.role) && req.user.branchId && req.body.branchId !== req.user.branchId) {
       return res.status(403).json({ error: 'You can only manage departments for your assigned branch' });
     }
     const repo = getDepartmentRepository();
@@ -33,7 +33,7 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 // PATCH /api/departments/:id
 router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    if (req.user.role !== 'super_admin' && req.user.branchId && req.body.branchId && req.body.branchId !== req.user.branchId) {
+    if (!['super_admin', 'client_admin'].includes(req.user.role) && req.user.branchId && req.body.branchId && req.body.branchId !== req.user.branchId) {
       return res.status(403).json({ error: 'You can only manage departments for your assigned branch' });
     }
     const repo = getDepartmentRepository();

@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
 import ThemeToggle from '../components/ui/ThemeToggle'
+import logo from '../img/delogo-2022.png'
 
 // Abstract blueprint SVG (inline, no external deps)
 function Blueprint() {
@@ -20,59 +21,59 @@ function Blueprint() {
       preserveAspectRatio="xMidYMid slice"
       aria-hidden="true"
     >
-      {/* Fine grid */}
+      {/* Fine grid — blue */}
       {Array.from({ length: 32 }).map((_, i) => (
-        <line key={`v${i}`} x1={i * 20} y1="0" x2={i * 20} y2="720" stroke="#3b82f6" strokeWidth="0.4" />
+        <line key={`v${i}`} x1={i * 20} y1="0" x2={i * 20} y2="720" stroke="#1e6eff" strokeWidth="0.4" />
       ))}
       {Array.from({ length: 37 }).map((_, i) => (
-        <line key={`h${i}`} x1="0" y1={i * 20} x2="640" y2={i * 20} stroke="#3b82f6" strokeWidth="0.4" />
+        <line key={`h${i}`} x1="0" y1={i * 20} x2="640" y2={i * 20} stroke="#1e6eff" strokeWidth="0.4" />
       ))}
-      {/* Coarse grid overlay */}
+      {/* Coarse grid overlay — blue */}
       {Array.from({ length: 7 }).map((_, i) => (
-        <line key={`cv${i}`} x1={i * 100} y1="0" x2={i * 100} y2="720" stroke="#3b82f6" strokeWidth="0.8" />
+        <line key={`cv${i}`} x1={i * 100} y1="0" x2={i * 100} y2="720" stroke="#1e6eff" strokeWidth="0.8" />
       ))}
       {Array.from({ length: 8 }).map((_, i) => (
-        <line key={`ch${i}`} x1="0" y1={i * 100} x2="640" y2={i * 100} stroke="#3b82f6" strokeWidth="0.8" />
+        <line key={`ch${i}`} x1="0" y1={i * 100} x2="640" y2={i * 100} stroke="#1e6eff" strokeWidth="0.8" />
       ))}
-      {/* Circuit traces */}
-      <rect x="140" y="160" width="100" height="100" stroke="#3b82f6" strokeWidth="1.5" />
-      <circle cx="190" cy="210" r="28" stroke="#3b82f6" strokeWidth="1.5" />
-      <circle cx="190" cy="210" r="5"  fill="#3b82f6" />
-      <line x1="190" y1="160" x2="190" y2="100" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="240" y1="210" x2="320" y2="210" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="320" y1="210" x2="320" y2="160" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="320" y1="160" x2="420" y2="160" stroke="#3b82f6" strokeWidth="1.5" />
-      <rect x="420" y="140" width="60" height="40" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="140" y1="210" x2="80"  y2="210" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="80"  y1="210" x2="80"  y2="360" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="80"  y1="360" x2="200" y2="360" stroke="#3b82f6" strokeWidth="1.5" />
-      <rect x="200" y="340" width="60" height="40" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="260" y1="360" x2="400" y2="360" stroke="#3b82f6" strokeWidth="1.5" />
-      <circle cx="400" cy="360" r="10" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="410" y1="330" x2="460" y2="280" stroke="#3b82f6" strokeWidth="1.5" />
-      <rect x="460" y="260" width="80" height="50" stroke="#3b82f6" strokeWidth="1.5" />
-      {/* Node circles */}
+      {/* Circuit traces — blue base */}
+      <rect x="140" y="160" width="100" height="100" stroke="#1e6eff" strokeWidth="1.5" />
+      <circle cx="190" cy="210" r="28" stroke="#84cc16" strokeWidth="1.5" />
+      <circle cx="190" cy="210" r="5"  fill="#84cc16" />
+      <line x1="190" y1="160" x2="190" y2="100" stroke="#84cc16" strokeWidth="1.5" />
+      <line x1="240" y1="210" x2="320" y2="210" stroke="#1e6eff" strokeWidth="1.5" />
+      <line x1="320" y1="210" x2="320" y2="160" stroke="#1e6eff" strokeWidth="1.5" />
+      <line x1="320" y1="160" x2="420" y2="160" stroke="#84cc16" strokeWidth="1.5" />
+      <rect x="420" y="140" width="60" height="40" stroke="#84cc16" strokeWidth="1.5" />
+      <line x1="140" y1="210" x2="80"  y2="210" stroke="#1e6eff" strokeWidth="1.5" />
+      <line x1="80"  y1="210" x2="80"  y2="360" stroke="#1e6eff" strokeWidth="1.5" />
+      <line x1="80"  y1="360" x2="200" y2="360" stroke="#84cc16" strokeWidth="1.5" />
+      <rect x="200" y="340" width="60" height="40" stroke="#84cc16" strokeWidth="1.5" />
+      <line x1="260" y1="360" x2="400" y2="360" stroke="#1e6eff" strokeWidth="1.5" />
+      <circle cx="400" cy="360" r="10" stroke="#84cc16" strokeWidth="1.5" />
+      <line x1="410" y1="330" x2="460" y2="280" stroke="#84cc16" strokeWidth="1.5" />
+      <rect x="460" y="260" width="80" height="50" stroke="#84cc16" strokeWidth="1.5" />
+      {/* Node circles — alternate green/blue */}
       {[[190,100],[320,160],[80,210],[200,360],[400,360],[190,260]].map(([x,y],i) => (
-        <circle key={i} cx={x} cy={y} r="3.5" fill="#3b82f6" />
+        <circle key={i} cx={x} cy={y} r="3.5" fill={i % 2 === 0 ? '#84cc16' : '#1e6eff'} />
       ))}
-      {/* Data block */}
-      <rect x="300" y="460" width="160" height="110" stroke="#3b82f6" strokeWidth="2" />
-      <line x1="300" y1="480" x2="460" y2="480" stroke="#3b82f6" strokeWidth="0.6" />
-      <line x1="300" y1="500" x2="460" y2="500" stroke="#3b82f6" strokeWidth="0.6" />
-      <line x1="300" y1="520" x2="460" y2="520" stroke="#3b82f6" strokeWidth="0.6" />
-      <line x1="300" y1="540" x2="460" y2="540" stroke="#3b82f6" strokeWidth="0.6" />
-      <rect x="310" y="465" width="40" height="9" rx="1" fill="#3b82f6" fillOpacity="0.5" />
+      {/* Data block — green accent */}
+      <rect x="300" y="460" width="160" height="110" stroke="#84cc16" strokeWidth="2" />
+      <line x1="300" y1="480" x2="460" y2="480" stroke="#84cc16" strokeWidth="0.6" />
+      <line x1="300" y1="500" x2="460" y2="500" stroke="#1e6eff" strokeWidth="0.6" />
+      <line x1="300" y1="520" x2="460" y2="520" stroke="#84cc16" strokeWidth="0.6" />
+      <line x1="300" y1="540" x2="460" y2="540" stroke="#1e6eff" strokeWidth="0.6" />
+      <rect x="310" y="465" width="40" height="9" rx="1" fill="#84cc16" fillOpacity="0.5" />
       {[0,1,2,3].map(i => (
-        <rect key={i} x="310" y={487 + i * 20} width={30 + i * 14} height="6" rx="1" fill="#3b82f6" fillOpacity="0.2" />
+        <rect key={i} x="310" y={487 + i * 20} width={30 + i * 14} height="6" rx="1" fill={i % 2 === 0 ? '#84cc16' : '#1e6eff'} fillOpacity="0.2" />
       ))}
-      {/* Crosshair */}
-      <line x1="100" y1="560" x2="140" y2="560" stroke="#3b82f6" strokeWidth="1.5" />
-      <line x1="120" y1="540" x2="120" y2="580" stroke="#3b82f6" strokeWidth="1.5" />
-      <circle cx="120" cy="560" r="14" stroke="#3b82f6" strokeWidth="1" />
-      <circle cx="120" cy="560" r="3"  fill="#3b82f6" fillOpacity="0.6" />
+      {/* Crosshair — green */}
+      <line x1="100" y1="560" x2="140" y2="560" stroke="#84cc16" strokeWidth="1.5" />
+      <line x1="120" y1="540" x2="120" y2="580" stroke="#84cc16" strokeWidth="1.5" />
+      <circle cx="120" cy="560" r="14" stroke="#84cc16" strokeWidth="1" />
+      <circle cx="120" cy="560" r="3"  fill="#84cc16" fillOpacity="0.6" />
       {/* Corner annotations */}
-      <text x="8" y="14" fill="#3b82f6" fontSize="7" fontFamily="monospace">REF:A1</text>
-      <text x="580" y="714" fill="#3b82f6" fontSize="7" fontFamily="monospace">SYS:2.0</text>
+      <text x="8" y="14" fill="#84cc16" fontSize="7" fontFamily="monospace">REF:A1</text>
+      <text x="580" y="714" fill="#1e6eff" fontSize="7" fontFamily="monospace">SYS:2.0</text>
     </svg>
   )
 }
@@ -81,7 +82,7 @@ function Blueprint() {
 function Stat({ value, label }) {
   return (
     <div>
-      <p className="text-xl font-bold text-accent tabular">{value}</p>
+      <p className="text-xl font-bold text-brand-green tabular">{value}</p>
       <p className="text-xs text-navy-400 uppercase tracking-[0.15em] mt-0.5">{label}</p>
     </div>
   )
@@ -113,7 +114,7 @@ export default function Login() {
   const inputCls = `
     w-full h-9 px-3 text-sm bg-navy-600 border border-navy-500 text-navy-100
     placeholder:text-navy-400/50
-    focus:outline-none focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent/30
+    focus:outline-none focus-visible:border-brand-green focus-visible:ring-1 focus-visible:ring-brand-green/25
     transition-colors duration-80 rounded-md
   `
 
@@ -133,11 +134,11 @@ export default function Login() {
 
           {/* Wordmark */}
           <div>
-            <div className="flex items-baseline gap-2">
-              <span className="text-[26px] font-bold tracking-tight text-navy-50">DE WEBNET</span>
+            <div className="flex items-center gap-3">
+              <img src={logo} alt="DE WEBNET" className="h-10 w-auto" />
               <span className="text-xs text-navy-400 font-mono">v2.0</span>
             </div>
-            <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1 font-medium">
+            <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-2 font-medium">
               HR &amp; Payroll Platform
             </p>
           </div>
@@ -146,7 +147,7 @@ export default function Login() {
           <div className="mt-auto">
             <h1 className="text-[48px] font-thin text-navy-50 leading-[1.1] tracking-tighter">
               Precision<br />
-              <span className="font-bold">Workforce</span><br />
+              <span className="font-bold text-brand-green">Workforce</span><br />
               Management
             </h1>
             <p className="mt-5 text-sm text-navy-200 max-w-[360px] leading-relaxed font-light">
@@ -175,8 +176,8 @@ export default function Login() {
       <div className="flex-1 flex flex-col items-center justify-center px-8 py-16">
 
         {/* Mobile wordmark */}
-        <div className="lg:hidden mb-10 text-center">
-          <p className="text-2xl font-bold tracking-tight text-navy-50">DE WEBNET</p>
+        <div className="lg:hidden mb-10 flex flex-col items-center gap-1">
+          <img src={logo} alt="DE WEBNET" className="h-9 w-auto" />
           <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1">HR &amp; Payroll</p>
         </div>
 
@@ -223,10 +224,10 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-1 w-full h-9 bg-accent hover:bg-accent-400 text-white text-sm font-semibold
+              className="mt-1 w-full h-9 bg-brand-green hover:bg-brand-green-400 text-navy-950 text-sm font-semibold
                          transition-colors duration-80 rounded-md
                          disabled:opacity-40 disabled:cursor-not-allowed
-                         focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/60"
+                         focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-green/60"
             >
               {loading ? 'Authenticating...' : 'Sign In ->'}
             </button>

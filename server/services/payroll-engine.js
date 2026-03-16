@@ -135,11 +135,14 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     basicRate,
     salaryType,
     paymentFrequency,
-    allowances: allowanceList   = [],
-    additionalDeductions         = [],
+    allowances: allowanceList,
+    additionalDeductions,
     overtimeEligible             = true,
     nightDiffEligible            = true,
   } = salaryStruct;
+
+  const safeAllowanceList      = Array.isArray(allowanceList)      ? allowanceList      : [];
+  const safeAdditionalDeductions = Array.isArray(additionalDeductions) ? additionalDeductions : [];
 
   // How many pay periods per month
   const FREQ = paymentFrequency === 'monthly'     ? 1
@@ -210,7 +213,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
 
   // Allowances prorated for pay period
   let allowancesTotal = 0;
-  for (const a of allowanceList) {
+  for (const a of safeAllowanceList) {
     if      (a.type === 'fixed_monthly') allowancesTotal += a.amount / FREQ;
     else if (a.type === 'per_day')       allowancesTotal += a.amount * daysPresent;
     else if (a.type === 'per_hour')      allowancesTotal += a.amount * (totalWorkedMinutes / 60);
@@ -241,7 +244,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
 
   // Additional company deductions
   let otherDeductions = 0;
-  for (const d of additionalDeductions) {
+  for (const d of safeAdditionalDeductions) {
     otherDeductions += d.amount || 0;
   }
   otherDeductions = round2(otherDeductions);

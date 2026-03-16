@@ -1,235 +1,314 @@
-# DE WEBNET Setup Guide (New Laptop)
+# DE WEBNET v2.0 — Setup Guide (New PC)
 
-This guide is optimized for moving this project to another laptop quickly.
+## How the System Is Structured
 
-## 0. One-Click Setup (Recommended on Windows)
+There are two types of deployments:
 
-From project root, run:
+**HQ (Central)** — one machine, runs the main database, manages all branches, handles payroll and reporting.
 
-  npm run setup:windows
+**Branch** — one machine per branch location, runs its own local database, works offline, syncs to HQ when internet is available.
 
-Optional variants:
+Each branch laptop/PC is a fully self-contained server. Devices inside that branch (kiosks, HR PCs) connect to it over the local network — not the internet.
 
-  npm run setup:windows:skip-install
-  npm run setup:windows:mock
-  npm run setup:windows:start
+---
 
-What it does:
+## What You Need (Both Types)
 
-- checks Node/npm
-- creates .env and web/.env from examples if missing
-- installs root/server/web dependencies
-- seeds tenant and default role accounts
-- optionally seeds mock data
-- optionally opens server + web dev terminals
+- Windows 10 or 11
+- Node.js 18 or higher — https://nodejs.org
+- Git — https://git-scm.com
+- PostgreSQL 14 or higher — https://www.postgresql.org/download/windows/
 
-You can also run by double-clicking:
+Check your versions:
 
-  scripts/setup-windows.cmd
+    node --version
+    npm --version
+    git --version
+    psql --version
 
-Or directly with flags:
+---
 
-  powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -IncludeMockData -StartServices
+## Step 1 — Get the Project
 
-## 1. What You Need
+Copy the project folder to the machine, or clone from your repo:
 
-- Windows 10/11
-- Node.js 18+ and npm 9+
-- Git
-- MongoDB Atlas account or local MongoDB
-- Optional: Python 3.8+ if you will run AI camera service
+    git clone <your-repo-url>
+    cd Apollo
 
-Quick checks:
+---
 
-  node --version
-  npm --version
-  git --version
+## Step 2 — Install Dependencies
 
-## 2. Get the Project
+    npm install
+    cd server && npm install
+    cd ../web && npm install
 
-Clone or copy the project to your laptop, then open this folder:
+---
 
-  C:/Users/Patrick/DEX/Apollo
+## Step 3 — Set Up PostgreSQL
 
-## 3. Environment Setup
+Install PostgreSQL if not already installed. Then create a database and user:
 
-### 3.1 Root env
+Open **psql** or **pgAdmin** and run:
 
-Copy example env:
+    CREATE USER apollo_user WITH PASSWORD 'choose_a_strong_password';
+    CREATE DATABASE apollo_branch OWNER apollo_user;
+    GRANT ALL PRIVILEGES ON DATABASE apollo_branch TO apollo_user;
 
-  copy .env.example .env
+Your connection string will be:
 
-Edit .env and set at least:
+    postgresql://apollo_user:choose_a_strong_password@127.0.0.1:5432/apollo_branch
 
-- MONGODB_URI
-- JWT_SECRET
-- CORS_ORIGIN
-- HTTP_PORT
+---
 
-Important:
+## Step 4 — Environment Files
 
-- Keep database name casing consistent as DEWEBNET.
-- Example Atlas format:
-  mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/DEWEBNET?retryWrites=true&w=majority
+### HQ Setup (.env)
 
-### 3.2 Web env (if needed)
+Create `Apollo/.env`:
 
-If web uses env in your machine, create it in web folder:
+    DB_PROVIDER=postgres
+    POSTGRES_URL=postgresql://apollo_user:PASSWORD@127.0.0.1:5432/apollo_branch
+    POSTGRES_POOL_MAX=15
+    POSTGRES_IDLE_TIMEOUT_MS=10000
 
-  cd web
-  if not exist .env copy .env.example .env
+    HTTP_PORT=3000
+    CORS_ORIGIN=http://localhost:5173,http://127.0.0.1:5173
 
-## 4. Install Dependencies
+    JWT_SECRET=replace-with-a-long-random-secret
+    JWT_EXPIRES_IN=12h
 
-From project root:
+    WS_PORT=8080
+    WS_HOST=localhost
 
-  npm install
+    LOG_LEVEL=info
+    LOG_FILE_PATH=logs/dewebnet.log
+    LOG_MAX_FILES=30
+    LOG_MAX_SIZE=10485760
 
-If needed, also run explicitly:
+    NODE_ENV=production
+    APP_RUNTIME_MODE=CENTRAL
 
-  cd server
-  npm install
-  cd ../web
-  npm install
+### Branch Setup (.env)
 
-Optional AI setup:
+Create `Apollo/.env` on the branch machine. The key differences from HQ are:
+- `APP_RUNTIME_MODE=CENTRAL`
+- `CENTRAL_SYNC_URL` points to the HQ machine's IP
+- `BRANCH_ID` is the UUID of this branch (get it from HQ admin panel after creating the branch there first)
+- `SYNC_SHARED_SECRET` must match what is set on HQ
 
-  cd ../ai
-  python -m venv venv
-  venv\Scripts\activate
-  pip install --upgrade pip
-  pip install -r requirements.txt
+Example:
 
-## 5. Start the App
+    DB_PROVIDER=postgres
+    POSTGRES_URL=postgresql://apollo_user:PASSWORD@127.0.0.1:5432/apollo_branch
+    POSTGRES_POOL_MAX=15
+    POSTGRES_IDLE_TIMEOUT_MS=10000
+
+    HTTP_PORT=3000
+    CORS_ORIGIN=http://192.168.1.10:5173,http://192.168.1.20:5173
+
+    JWT_SECRET=replace-with-a-long-random-secret
+    JWT_EXPIRES_IN=12h
+
+    WS_PORT=8080
+    WS_HOST=0.0.0.0
+
+    LOG_LEVEL=info
+    LOG_FILE_PATH=logs/dewebnet.log
+    LOG_MAX_FILES=30
+    LOG_MAX_SIZE=10485760
+
+    NODE_ENV=production
+    APP_RUNTIME_MODE=BRANCH
+    BRANCH_ID=paste-the-branch-uuid-from-hq-here
+    CENTRAL_SYNC_URL=http://192.168.1.5:3000
+    SYNC_SHARED_SECRET=same-secret-as-hq
+    SYNC_WORKER_INTERVAL_MS=10000
+    SYNC_OUTBOX_BATCH_SIZE=50
+    SYNC_MAX_RETRIES=5
+
+Replace `192.168.1.5` with the actual LAN IP of your HQ machine, and `192.168.1.10` / `192.168.1.20` with the IPs of the branch devices.
+
+### Web (.env)
+
+Create `Apollo/web/.env`:
+
+**For HQ or local dev:**
+
+    VITE_API_URL=http://localhost:3000/api
+    VITE_WS_URL=ws://localhost:8080
+
+**For branch devices connecting over LAN** (build the web app with this, then serve it):
+
+    VITE_API_URL=http://192.168.1.10:3000/api
+    VITE_WS_URL=ws://192.168.1.10:8080
+
+Replace `192.168.1.10` with the branch server's static LAN IP.
+
+---
+
+## Step 5 — Run Database Migrations
+
+Run this once on every new machine (HQ and each branch):
+
+    cd Apollo/server
+    node scripts/run-postgres-migration.js
+
+This creates all the tables. Safe to run again — it skips existing tables.
+
+---
+
+## Step 6 — Seed Admin Accounts
+
+Run this once on every new machine:
+
+    node scripts/seed-postgres-admin.js
+
+Creates: default tenant, Head Office branch, and two admin accounts.
+
+Default password for all accounts: `admin123`
+
+| Role         | Email                    |
+|--------------|--------------------------|
+| super_admin  | admin@dewebnet.com       |
+| client_admin | clientadmin@dewebnet.com |
+
+---
+
+## Step 7 — Seed Mock Employee Data (Optional, HQ only)
+
+Only needed for testing. Adds 5 demo employees with ~30 workdays of attendance:
+
+    node scripts/seed-mock-data.js
+
+To reset:
+
+    node scripts/seed-mock-data.js --clean
+    node scripts/seed-mock-data.js
+
+---
+
+## Step 8 — Start the App
 
 Open two terminals.
 
-Terminal 1 (API server):
+**Terminal 1 — API server:**
 
-  cd C:/Users/Patrick/DEX/Apollo/server
-  npm run dev
+    cd Apollo/server
+    npm run dev
 
-Terminal 2 (web app):
+**Terminal 2 — Web app:**
 
-  cd C:/Users/Patrick/DEX/Apollo/web
-  npm run dev
+    cd Apollo/web
+    npm run dev
 
-Default URLs:
-
-- API: http://localhost:3000
+URLs:
 - Web: http://localhost:5173
+- API health check: http://localhost:3000/api/health
 
-## 6. Seed System Accounts
+---
 
-Run once after DB is ready:
+## Step 9 — Setting Up a New Branch (Full Process)
 
-  cd C:/Users/Patrick/DEX/Apollo/server
-  node scripts/seed.js
+Do these steps **in order**:
 
-This creates or updates default users and resets their password.
+### On HQ first:
+1. Log in as super_admin
+2. Go to **Branches** and create the new branch (e.g. "Makati Branch")
+3. Note the Branch ID — you can find it in the URL or ask Patrick to get it from the database
 
-Default password for all seeded users:
+### On the branch machine:
+1. Install Node.js and PostgreSQL
+2. Copy the project folder
+3. Set up PostgreSQL and create a database (Step 3 above)
+4. Create `.env` using the **Branch Setup** template (Step 4 above)
+5. Fill in `BRANCH_ID` with the UUID from HQ
+6. Set `CENTRAL_SYNC_URL` to the HQ machine's IP and port
+7. Run migrations: `node scripts/run-postgres-migration.js`
+8. Run admin seed: `node scripts/seed-postgres-admin.js`
+9. Start the server: `npm run dev` in server folder
 
-- admin123
+### Build and serve the web app for branch devices:
+1. Set `VITE_API_URL` in `web/.env` to the branch server's LAN IP
+2. Build: `cd web && npm run build`
+3. Serve the built files — simplest option on Windows is to install `serve`:
 
-Default seeded accounts:
+        npm install -g serve
+        serve -s web/dist -l 5173
 
-- super_admin: admin@dewebnet.com
-- client_admin: clientadmin@dewebnet.com
-- hr_payroll: hr@dewebnet.com
-- branch_manager: manager@dewebnet.com
-- employee: employee@dewebnet.com
-- auditor: auditor@dewebnet.com
+4. All devices on the branch network open `http://192.168.1.10:5173` in their browser
 
-Kiosk tenant code:
+### Verify sync is working:
+- Open http://localhost:3000/api/sync/status on the branch machine
+- It should show the outbox depth and last sync time
 
-- DEWEBNET
+---
 
-## 7. Seed Mock Payroll Data (Optional)
+## Payroll Notes
 
-For demo and testing payroll/attendance flows:
+- Employees must be assigned to the **same branch** as the payroll run
+- Attendance data must exist for the cutoff period
+- Payroll is run and managed from HQ, not branch machines
 
-  cd C:/Users/Patrick/DEX/Apollo/server
-  node scripts/seed-mock-payroll-dataset.js
+---
 
-This seeds:
+## Troubleshooting
 
-- 5 mock employees
-- salary structures
-- realistic attendance logs
+### Cannot connect to PostgreSQL
 
-## 8. Quick Smoke Test
+    Error: connect ECONNREFUSED 127.0.0.1:5432
 
-1. Login at http://localhost:5173/login using admin@dewebnet.com and admin123.
-2. Open Employees page and verify records load.
-3. Open Attendance page and test Export Excel.
-4. Open Payroll Runs and create/compute a run.
-5. Open Kiosk page and use tenant code DEWEBNET.
+Fix: Make sure PostgreSQL is running. In Windows Services, look for "postgresql-x64-14" and start it. Or run:
 
-## 9. Known Issues and Fast Fixes
+    pg_ctl start -D "C:\Program Files\PostgreSQL\14\data"
 
-### Issue: Mongo error about different DB case
+### Port 3000 already in use
 
-Error example: db already exists with different case...
+Fix: Change `HTTP_PORT` in `.env` and update `VITE_API_URL` in `web/.env` to match.
 
-Fix:
-
-- Ensure MONGODB_URI uses DEWEBNET (uppercase), not dewebnet.
-- Re-run:
-  node scripts/seed.js
-
-### Issue: Kiosk says invalid company code and shows APOLLO
-
-Cause: old code cached in browser localStorage.
-
-Fix:
-
-- Click Reset / Change Company in kiosk and enter DEWEBNET.
-- Hard refresh browser.
-
-### Issue: Server fails to start on port 3000
-
-Check if port is occupied:
-
-  netstat -ano | findstr :3000
-
-Either stop conflicting process or change HTTP_PORT in .env.
-
-### Issue: Web starts but API calls fail
+### Branch not syncing to HQ
 
 Check:
+- `CENTRAL_SYNC_URL` in branch `.env` is reachable from the branch machine (ping or browser test)
+- `BRANCH_ID` matches the UUID in HQ's branches table
+- `SYNC_SHARED_SECRET` matches on both sides
+- HQ server is running
 
-- server terminal is running
-- CORS_ORIGIN includes http://localhost:5173
-- API URL in web config points to http://localhost:3000/api
+### Kiosk says "Invalid company code"
 
-## 10. Transfer Checklist
+Fix: Enter `DEWEBNET` (all caps) on the kiosk setup screen.
 
-When moving to another laptop, do these in order:
+### Employees show "Unassigned Branch"
 
-1. Install Node/npm/Git.
-2. Copy project folder.
-3. Create .env from .env.example.
-4. Set MONGODB_URI and JWT_SECRET.
-5. Run npm install in root, server, web.
-6. Run server and web.
-7. Run node scripts/seed.js.
-8. Optional: run node scripts/seed-mock-payroll-dataset.js.
-9. Login and verify pages.
+Fix: Edit each employee and assign them to the correct branch.
 
-Fast path using one-click setup:
+---
 
-1. Install Node/npm/Git.
-2. Copy project folder.
-3. Run npm run setup:windows.
-4. Optional: run npm run setup:windows:skip-install if dependencies are already installed.
-5. Optional: run npm run setup:windows:mock.
-6. Login and verify pages.
+## Transfer Checklist
 
-## 11. Recommended Production Notes
+### HQ machine
+- [ ] Node.js 18+ installed
+- [ ] PostgreSQL installed and running
+- [ ] Database and user created
+- [ ] Project folder copied
+- [ ] `Apollo/.env` created (`APP_RUNTIME_MODE=CENTRAL`)
+- [ ] `Apollo/web/.env` created
+- [ ] `npm install` run in root, server, and web
+- [ ] Migrations run
+- [ ] Admin seed run
+- [ ] Server and web started
+- [ ] Login verified
 
-- Change all default seeded passwords immediately.
-- Change JWT_SECRET to a long random value.
-- Restrict CORS_ORIGIN to trusted domains.
-- Use strong MongoDB credentials and IP restrictions.
-- Keep .env out of version control.
+### Each branch machine
+- [ ] Node.js 18+ installed
+- [ ] PostgreSQL installed and running
+- [ ] Database and user created
+- [ ] Project folder copied
+- [ ] Branch created on HQ first, `BRANCH_ID` noted
+- [ ] `Apollo/.env` created (`APP_RUNTIME_MODE=BRANCH`, `BRANCH_ID`, `CENTRAL_SYNC_URL`, `SYNC_SHARED_SECRET`)
+- [ ] Migrations run
+- [ ] Admin seed run
+- [ ] Server started
+- [ ] Web app built with branch LAN IP in `VITE_API_URL`
+- [ ] Web app served and accessible from branch devices
+- [ ] Sync status verified at `/api/sync/status`

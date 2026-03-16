@@ -310,10 +310,26 @@ function EmployeeDashboard() {
     }
   }
 
-  const presentToday = attendance.some((log) => {
-    const today = new Date().toDateString()
-    return log.type === 'IN' && new Date(log.timestamp).toDateString() === today
-  })
+  const todayStr = new Date().toDateString()
+  const todayLatest = attendance
+    .filter((log) => new Date(log.timestamp).toDateString() === todayStr)
+    .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0]
+
+  const currentStatus = (() => {
+    if (!todayLatest) return 'No In Log'
+    if (todayLatest.type === 'BREAK_OUT') return 'On Break'
+    if (todayLatest.type === 'IN' || todayLatest.type === 'BREAK_IN') return 'Timed In'
+    if (todayLatest.type === 'OUT') return 'Timed Out'
+    return 'No In Log'
+  })()
+
+  const statusKpiCls = {
+    'Timed In':  'text-signal-success',
+    'On Break':  'text-signal-warning',
+    'Timed Out': 'text-navy-300',
+    'No In Log': 'text-navy-500',
+  }[currentStatus] || 'text-navy-500'
+
   const pendingCorrections = corrections.filter((item) => item.status === 'pending').length
   const latestPayslip = payslips[0]?.payslip || null
   const employmentStatus = employee?.employment?.status || 'inactive'
@@ -342,7 +358,7 @@ function EmployeeDashboard() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 p-5 pb-0">
-        <KPI label="Today" value={presentToday ? 'Present' : 'No In Log'} sub={employee?.employeeCode || 'No employee code'} accent />
+        <KPI label="Today" value={<span className={statusKpiCls}>{currentStatus}</span>} sub={employee?.employeeCode || 'No employee code'} accent />
         <KPI label="Pending Requests" value={pendingCorrections} sub="Attendance corrections" />
         <KPI label="Latest Net Pay" value={latestPayslip ? fmtPeso(latestPayslip.netPay) : '—'} sub={payslips[0] ? fmtDateRange(payslips[0].cutoffStart, payslips[0].cutoffEnd) : 'No approved payslips'} />
         <KPI label="Branch" value={employee?.branchId?.name || 'Assigned'} sub={employee?.employment?.position || 'No position set'} />
@@ -504,7 +520,17 @@ export default function Dashboard() {
     )
   ).size
 
-  const lateToday  = todayLogs.filter(l => l.exceptions?.isLate).length
+  // Determine current punch status per employee (latest punch wins)
+  const latestPunchByEmployee = {}
+  for (const log of todayLogs) {
+    const empId = typeof log.employeeId === 'object' ? log.employeeId._id : log.employeeId
+    if (!latestPunchByEmployee[empId] || new Date(log.timestamp) > new Date(latestPunchByEmployee[empId].timestamp)) {
+      latestPunchByEmployee[empId] = log
+    }
+  }
+  const onBreakToday = Object.values(latestPunchByEmployee).filter(l => l.type === 'BREAK_OUT').length
+
+  const lateToday   = todayLogs.filter(l => l.exceptions?.isLate).length
   const absentToday = Math.max(0, employees.length - presentToday)
 
   const now = new Date()
@@ -615,11 +641,12 @@ export default function Dashboard() {
 
             {/* Today status block */}
             <Panel title="Today's Status">
-              <div className="grid grid-cols-3 gap-px bg-navy-500/30 border-t border-navy-500/20">
+              <div className="grid grid-cols-4 gap-px bg-navy-500/30 border-t border-navy-500/20">
                 {[
-                  { label: 'Present', value: presentToday,  cls: 'text-signal-success' },
-                  { label: 'Late',    value: lateToday,      cls: 'text-signal-warning' },
-                  { label: 'Absent',  value: absentToday,    cls: 'text-navy-200' },
+                  { label: 'Present',  value: presentToday,  cls: 'text-signal-success' },
+                  { label: 'On Break', value: onBreakToday,  cls: 'text-signal-warning' },
+                  { label: 'Late',     value: lateToday,     cls: 'text-accent-400' },
+                  { label: 'Absent',   value: absentToday,   cls: 'text-navy-200' },
                 ].map(item => (
                   <div key={item.label} className="bg-navy-700 py-4 text-center">
                     <p className={`text-2xl font-bold tabular ${item.cls}`}>{item.value}</p>

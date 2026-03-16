@@ -5,6 +5,19 @@
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
 const MAX_SAFE_TOKEN_LENGTH = 6000
+const CENTRAL_URL_KEY = 'dewebnet_central_url'
+
+function getBaseUrl() {
+  return localStorage.getItem(CENTRAL_URL_KEY) || BASE_URL
+}
+
+function saveCentralUrl(url) {
+  localStorage.setItem(CENTRAL_URL_KEY, url)
+}
+
+function clearCentralUrl() {
+  localStorage.removeItem(CENTRAL_URL_KEY)
+}
 
 function getToken() {
   const token = localStorage.getItem('dewebnet_token')
@@ -32,7 +45,7 @@ async function request(method, path, body) {
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${getBaseUrl()}${path}`, {
     method,
     headers,
     body: body !== undefined ? JSON.stringify(body) : undefined
@@ -46,7 +59,9 @@ async function request(method, path, body) {
 
   if (res.status === 401) {
     if (token) {
+      console.error('[DEX 401] Unauthorized →', method, `${getBaseUrl()}${path}`, data)
       clearToken()
+      clearCentralUrl()
       window.location.href = '/login'
     }
     throw new Error(data?.error || 'Authentication failed')
@@ -61,8 +76,22 @@ async function request(method, path, body) {
 
 // ── Auth ──────────────────────────────────────────────────────────
 export async function login(email, password) {
-  const data = await request('POST', '/auth/login', { email, password })
+  // Always hit the local server for login — it handles proxying to central if needed.
+  // Never use getBaseUrl() here or a stale centralUrl from a previous session would
+  // bypass the branch proxy and break the central redirect flow.
+  const res = await fetch(`${BASE_URL}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  })
+  const data = res.ok ? await res.json() : await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data?.error || `HTTP ${res.status}`)
   saveToken(data.token)
+  if (data.centralUrl) {
+    saveCentralUrl(data.centralUrl)
+  } else {
+    clearCentralUrl()
+  }
   return data
 }
 
@@ -70,6 +99,7 @@ export const verifyPassword = (password) => request('POST', '/auth/verify-passwo
 
 export function logout() {
   clearToken()
+  clearCentralUrl()
 }
 
 // ── Employees ─────────────────────────────────────────────────────
@@ -79,7 +109,23 @@ export const getMyEmployeeProfile = ()   => request('GET',    '/employees/me')
 export const createEmployee = (payload)  => request('POST',   '/employees', payload)
 export const updateEmployee  = (id, body)        => request('PATCH',  `/employees/${id}`, body)
 export const deleteEmployee  = (id)              => request('DELETE', `/employees/${id}`)
-export const enrollFace      = (id, descriptors) => request('PATCH',  `/employees/${id}/enroll-face`, { descriptors })
+export const enrollFace               = (id, descriptors) => request('PATCH',  `/employees/${id}/enroll-face`, { descriptors })
+export const uploadEmployeeDocument   = (id, doc)         => request('POST',   `/employees/${id}/documents`, doc)
+export const deleteEmployeeDocument   = (id, docId)       => request('DELETE', `/employees/${id}/documents/${docId}`)
+export async function downloadEmployeeDocument(id, docId, fileName) {
+  const headers = {}
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`
+  const res = await fetch(`${getBaseUrl()}/employees/${id}/documents/${docId}`, { headers })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const blob = await res.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = fileName || 'document'
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 // ── Attendance ────────────────────────────────────────────────────
 export const getAttendance = (params = {}) => {

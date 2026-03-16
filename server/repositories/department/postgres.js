@@ -26,7 +26,7 @@ async function listDepartments({ user, branchId }) {
       AND is_active = TRUE
   `;
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(user.role) && user.branchId) {
     params.push(user.branchId);
     query += ` AND branch_id = $${params.length}`;
   } else if (branchId) {

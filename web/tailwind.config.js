@@ -34,6 +34,13 @@ export default {
           muted:  'rgb(var(--c-accent-muted) / <alpha-value>)',
           subtle: 'rgb(var(--c-accent-subtle) / <alpha-value>)',
         },
+        // ── DE WEBNET brand green ─────────────────────────────────
+        'brand-green': {
+          DEFAULT: 'rgb(var(--c-brand-green) / <alpha-value>)',
+          400:    'rgb(var(--c-brand-green-400) / <alpha-value>)',
+          muted:  'rgb(var(--c-brand-green-muted) / <alpha-value>)',
+          subtle: 'rgb(var(--c-brand-green-subtle) / <alpha-value>)',
+        },
         // ── Signal colors ─────────────────────────────────────────
         signal: {
           success: 'rgb(var(--c-signal-success) / <alpha-value>)',

@@ -54,7 +54,7 @@ export default function Modal({
 
         {/* Footer */}
         <div className="flex justify-end gap-2 px-6 pb-5 pt-2 border-t border-navy-500/50">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
           {onConfirm && (
             <Button variant={confirmVariant} loading={loading} onClick={onConfirm}>
               {confirmLabel}

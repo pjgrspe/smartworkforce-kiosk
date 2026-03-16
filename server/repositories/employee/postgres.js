@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const { getPool } = require('../../config/postgres');
 const { enqueueOutboxEvent } = require('../../services/sync-outbox');
 
@@ -25,6 +26,8 @@ function mapEmployeeRow(row) {
     dependents: row.dependents,
     faceData: row.face_data || {},
     scheduleId: row.schedule_id,
+    documents: (row.documents || []).map(({ data: _d, ...meta }) => meta),
+    reportsToId: row.reports_to || null,
     isActive: row.is_active,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -65,6 +68,7 @@ function mapCreateOrUpdatePayload(payload) {
     dependents: payload.dependents == null ? 0 : payload.dependents,
     faceData: payload.faceData || {},
     scheduleId: payload.scheduleId || null,
+    reportsToId: payload.reportsToId || null,
     isActive: payload.isActive == null ? true : Boolean(payload.isActive),
     createdBy: payload.createdBy || null,
   };
@@ -97,6 +101,14 @@ async function ensureRelations(pool, tenantId, payload) {
       [payload.scheduleId, tenantId],
     );
     if (!schedule.rowCount) throw new Error('Invalid schedule for current tenant');
+  }
+
+  if (payload.reportsToId) {
+    const supervisor = await pool.query(
+      'SELECT id FROM employees WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE LIMIT 1',
+      [payload.reportsToId, tenantId],
+    );
+    if (!supervisor.rowCount) throw new Error('Invalid supervisor for current tenant');
   }
 }
 
@@ -171,7 +183,7 @@ async function listActive({ user }) {
       AND is_active = TRUE
   `;
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(user.role) && user.branchId) {
     params.push(user.branchId);
     query += ` AND branch_id = $${params.length}`;
   }
@@ -189,7 +201,6 @@ async function listActiveForPayroll({ tenantId, branchId }) {
     FROM employees
     WHERE tenant_id = $1
       AND is_active = TRUE
-      AND COALESCE(employment->>'status', 'active') = 'active'
   `;
 
   if (branchId) {
@@ -212,7 +223,7 @@ async function getById({ user, id }) {
       AND tenant_id = $2
   `;
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  if (!['super_admin', 'client_admin'].includes(user.role) && user.branchId) {
     params.push(user.branchId);
     query += ` AND branch_id = $${params.length}`;
   }
@@ -268,13 +279,14 @@ async function createEmployee({ user, payload }) {
         dependents,
         face_data,
         schedule_id,
+        reports_to,
         is_active,
         created_by
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19,
-        $20, $21, $22
+        $20, $21, $22, $23
       )
       RETURNING *
     `,
@@ -299,6 +311,7 @@ async function createEmployee({ user, payload }) {
       mapped.dependents,
       mapped.faceData,
       mapped.scheduleId,
+      mapped.reportsToId,
       mapped.isActive,
       mapped.createdBy,
     ],
@@ -354,10 +367,11 @@ async function updateEmployee({ user, id, patch }) {
         dependents = $18,
         face_data = $19,
         schedule_id = $20,
-        is_active = $21,
+        reports_to = $21,
+        is_active = $22,
         updated_at = NOW()
       WHERE id = $1
-        AND tenant_id = $22
+        AND tenant_id = $23
       RETURNING *
     `,
     [
@@ -381,6 +395,7 @@ async function updateEmployee({ user, id, patch }) {
       mapped.dependents,
       mapped.faceData,
       mapped.scheduleId,
+      mapped.reportsToId,
       mapped.isActive,
       user.tenantId,
     ],
@@ -445,6 +460,8 @@ async function enrollFace({ user, id, descriptors }) {
       entityId: updated.id,
       payload: {
         id: updated.id,
+        tenantId: updated.tenantId,
+        employeeCode: updated.employeeCode,
         faceData: updated.faceData,
       },
     });
@@ -464,7 +481,7 @@ async function softDeleteEmployee({ user, id }) {
       SET
         is_active = FALSE,
         employee_code = $2,
-        email = CASE WHEN email IS NULL THEN NULL ELSE CONCAT(email, '.archived.', $3) END,
+        email = CASE WHEN email IS NULL THEN NULL ELSE CONCAT(email, '.archived.', $3::text) END,
         employment = jsonb_set(COALESCE(employment, '{}'::jsonb), '{status}', '"inactive"'::jsonb),
         updated_at = NOW()
       WHERE id = $1
@@ -494,6 +511,69 @@ async function softDeleteEmployee({ user, id }) {
   return true;
 }
 
+async function addDocument({ user, id, doc }) {
+  const pool = getPool();
+  const newDoc = {
+    id: crypto.randomUUID(),
+    category: doc.category,
+    label: doc.label || '',
+    fileName: doc.fileName,
+    mimeType: doc.mimeType,
+    size: doc.size,
+    data: doc.data,
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: user.sub,
+  };
+
+  const { rows } = await pool.query(
+    `
+      UPDATE employees
+      SET documents   = COALESCE(documents, '[]'::jsonb) || $2::jsonb,
+          updated_at  = NOW()
+      WHERE id = $1 AND tenant_id = $3
+      RETURNING *
+    `,
+    [id, JSON.stringify([newDoc]), user.tenantId],
+  );
+  return rows[0] ? mapEmployeeRow(rows[0]) : null;
+}
+
+async function removeDocument({ user, id, docId }) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      UPDATE employees
+      SET documents  = (
+            SELECT COALESCE(jsonb_agg(doc ORDER BY (doc->>'uploadedAt')), '[]'::jsonb)
+            FROM   jsonb_array_elements(COALESCE(documents, '[]'::jsonb)) AS doc
+            WHERE  doc->>'id' <> $2
+          ),
+          updated_at = NOW()
+      WHERE id = $1 AND tenant_id = $3
+      RETURNING *
+    `,
+    [id, docId, user.tenantId],
+  );
+  return rows[0] ? mapEmployeeRow(rows[0]) : null;
+}
+
+async function getDocumentData({ user, id, docId }) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      SELECT doc
+      FROM   employees,
+             jsonb_array_elements(COALESCE(documents, '[]'::jsonb)) AS doc
+      WHERE  employees.id          = $1
+        AND  employees.tenant_id   = $2
+        AND  doc->>'id'            = $3
+      LIMIT 1
+    `,
+    [id, user.tenantId, docId],
+  );
+  return rows[0] ? rows[0].doc : null;
+}
+
 module.exports = {
   getProfile,
   listActive,
@@ -504,4 +584,7 @@ module.exports = {
   updateEmployee,
   enrollFace,
   softDeleteEmployee,
+  addDocument,
+  removeDocument,
+  getDocumentData,
 };

@@ -72,7 +72,7 @@ function AppRoutes() {
         <AdminPage roles={['super_admin','client_admin','hr_payroll','branch_manager','auditor']}><Employees /></AdminPage>
       } />
       <Route path="/branches" element={
-        <AdminPage roles={['super_admin']}><Branches /></AdminPage>
+        <AdminPage roles={['super_admin', 'client_admin']}><Branches /></AdminPage>
       } />
       <Route path="/schedules" element={
         <AdminPage roles={['super_admin','client_admin','hr_payroll']}><Schedules /></AdminPage>

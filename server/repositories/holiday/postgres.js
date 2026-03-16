@@ -42,10 +42,10 @@ async function bulkCreateHolidays({ user, holidays }) {
   const created = [];
   for (const holiday of holidays || []) {
     const { rows } = await pool.query(
-      'INSERT INTO holidays (tenant_id, name, date, type) VALUES ($1, $2, $3, $4) RETURNING *',
+      'INSERT INTO holidays (tenant_id, name, date, type) VALUES ($1, $2, $3, $4) ON CONFLICT (tenant_id, date) DO NOTHING RETURNING *',
       [user.tenantId, holiday.name, holiday.date, holiday.type],
     );
-    created.push(mapHoliday(rows[0]));
+    if (rows[0]) created.push(mapHoliday(rows[0]));
   }
   return created;
 }

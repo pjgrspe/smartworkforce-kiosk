@@ -1,4 +1,5 @@
 const { getPool } = require('../../config/postgres');
+const { enqueueOutboxEvent } = require('../../services/sync-outbox');
 
 function mapEmployeeForKiosk(row) {
   return {
@@ -53,7 +54,6 @@ async function getEmployeesForKiosk(tenantId) {
       FROM employees
       WHERE tenant_id = $1
         AND is_active = TRUE
-        AND COALESCE(employment->>'status', 'active') = 'active'
       ORDER BY last_name ASC, first_name ASC
     `,
     [tenantId],
@@ -111,7 +111,7 @@ async function createPunch({ tenantId, employeeId, type, confidenceScore, timest
     [tenantId, employee.branch_id, employeeId, timestamp, type, confidenceScore != null ? Number(confidenceScore) : null],
   );
 
-  return {
+  const result = {
     _id: rows[0].id,
     id: rows[0].id,
     tenantId: rows[0].tenant_id,
@@ -129,16 +129,36 @@ async function createPunch({ tenantId, employeeId, type, confidenceScore, timest
       employeeCode: employee.employee_code,
     },
   };
+
+  await enqueueOutboxEvent({
+    branchId: result.branchId,
+    eventType: 'attendance.created',
+    entityType: 'attendance_log',
+    entityId: result.id,
+    payload: {
+      id: result.id,
+      tenantId: result.tenantId,
+      branchId: result.branchId,
+      employeeId: employee.id,
+      timestamp: result.timestamp,
+      type: result.type,
+      source: result.source,
+      confidenceScore: result.confidenceScore,
+    },
+  });
+
+  return result;
 }
 
 async function flushQueuedPunch(punch) {
   const pool = getPool();
-  await pool.query(
+  const { rows } = await pool.query(
     `
       INSERT INTO attendance_logs (
         tenant_id, branch_id, employee_id, timestamp, type, source, confidence_score, synced, synced_at
       )
       VALUES ($1, $2, $3, $4, $5, 'face_kiosk', $6, TRUE, NOW())
+      RETURNING id, tenant_id, branch_id, employee_id, timestamp, type, source, confidence_score
     `,
     [
       punch.tenantId,
@@ -149,6 +169,25 @@ async function flushQueuedPunch(punch) {
       punch.confidenceScore != null ? Number(punch.confidenceScore) : null,
     ],
   );
+
+  if (rows[0]) {
+    await enqueueOutboxEvent({
+      branchId: rows[0].branch_id,
+      eventType: 'attendance.created',
+      entityType: 'attendance_log',
+      entityId: rows[0].id,
+      payload: {
+        id: rows[0].id,
+        tenantId: rows[0].tenant_id,
+        branchId: rows[0].branch_id,
+        employeeId: rows[0].employee_id,
+        timestamp: rows[0].timestamp,
+        type: rows[0].type,
+        source: rows[0].source,
+        confidenceScore: rows[0].confidence_score != null ? Number(rows[0].confidence_score) : null,
+      },
+    });
+  }
 }
 
 module.exports = {

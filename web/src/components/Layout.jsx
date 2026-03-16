@@ -11,6 +11,7 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocket } from '../contexts/WebSocketContext'
 import ThemeToggle from './ui/ThemeToggle'
+import logo from '../img/delogo-2022.png'
 
 // ── Inline SVG icon set ──────────────────────────────────────────────
 const Icons = {
@@ -88,7 +89,7 @@ const NAV_GROUPS = [
     label: 'Workforce',
     items: [
       { to: '/employees', label: 'Employees', Icon: Icons.Employees, roles: ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager', 'auditor'] },
-      { to: '/branches',  label: 'Branches',  Icon: Icons.Branches,  roles: ['super_admin'] },
+      { to: '/branches',  label: 'Branches',  Icon: Icons.Branches,  roles: ['super_admin', 'client_admin'] },
       { to: '/schedules', label: 'Schedules', Icon: Icons.Schedules, roles: ['super_admin', 'client_admin', 'hr_payroll'] },
     ],
   },
@@ -137,11 +138,11 @@ export default function Layout({ children }) {
 
         {/* Brand */}
         <div className="px-5 pt-5 pb-4 border-b border-navy-500/30">
-          <div className="flex items-baseline gap-2">
-            <span className="text-[15px] font-bold tracking-tight text-navy-50">DE WEBNET</span>
+          <div className="flex items-center gap-2">
+            <img src={logo} alt="DE WEBNET" className="h-7 w-auto" />
             <span className="text-2xs text-navy-300 font-mono">v2.0</span>
           </div>
-          <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-0.5 font-medium">
+          <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1.5 font-medium">
             HR &amp; Payroll Platform
           </p>
         </div>
@@ -193,7 +194,7 @@ export default function Layout({ children }) {
                     relative flex items-center gap-2.5 px-5 py-[7px] text-[13px] font-medium
                     transition-colors duration-80
                     ${isActive
-                      ? 'text-navy-50 bg-navy-600/50 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-accent'
+                      ? 'text-navy-50 bg-brand-green/8 before:absolute before:left-0 before:top-0 before:bottom-0 before:w-0.5 before:bg-brand-green'
                       : 'text-navy-200 hover:text-navy-50 hover:bg-navy-700/40'
                     }
                   `}

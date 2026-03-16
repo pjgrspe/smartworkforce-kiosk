@@ -6,7 +6,10 @@ const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
 const { getUserRepository } = require('../repositories/user');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_production';
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable must be set. Refusing to start with insecure default.');
+}
 
 /**
  * Sign a JWT for a user document.

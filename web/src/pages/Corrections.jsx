@@ -120,7 +120,7 @@ function ReviewModal({ correction, onClose, onDone }) {
           </div>
           <div className="flex gap-3">
             <span className="label-caps w-20">Reason</span>
-            <span className="text-navy-100">{REASON_LABELS[correction.reasonCode]}</span>
+            <span className="text-navy-100">{correction.notes || REASON_LABELS[correction.reasonCode] || '—'}</span>
           </div>
           {correction.notes && (
             <div className="flex gap-3">
@@ -172,7 +172,7 @@ function NewCorrectionModal({
   const [form, setForm]   = useState({
     employeeId: defaultEmployeeId || '',
     targetDate: '',
-    reasonCode: 'forgot_to_log',
+    reason: '',
     notes: '',
     adjustmentOperation: 'none',
     adjustmentType: 'IN',
@@ -300,9 +300,14 @@ function NewCorrectionModal({
       return
     }
 
+    if (!form.reason.trim()) {
+      setError('Reason is required')
+      return
+    }
+
     const payload = {
       targetDate: form.targetDate,
-      reasonCode: form.reasonCode,
+      reason: form.reason,
       notes: form.notes,
     }
 
@@ -353,13 +358,9 @@ function NewCorrectionModal({
         )}
         <Input type="date" label="Date *" value={form.targetDate}
           onChange={e => setForm(p => ({ ...p, targetDate: e.target.value }))} />
-        <Select label="Reason *" value={form.reasonCode}
-          onChange={e => setForm(p => ({ ...p, reasonCode: e.target.value }))}>
-          {Object.entries(REASON_LABELS).map(([k, v]) => (
-            <option key={k} value={k}>{v}</option>
-          ))}
-        </Select>
-        <Textarea label="Notes" rows={2} value={form.notes}
+        <Textarea label="Reason *" rows={2} placeholder="Describe why this correction is needed…" value={form.reason}
+          onChange={e => setForm(p => ({ ...p, reason: e.target.value }))} />
+        <Textarea label="Additional Notes" rows={2} value={form.notes}
           onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} />
 
         <div className="border border-navy-500 rounded-md p-3 space-y-3 bg-navy-600/50">
@@ -510,7 +511,7 @@ export default function Corrections() {
                         className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
                     <td className="px-4 py-2.5 font-medium text-navy-100">{empN}</td>
                     <td className="px-4 py-2.5 font-mono tabular text-navy-300">{fmtDate(c.targetDate)}</td>
-                    <td className="px-4 py-2.5 text-navy-200">{REASON_LABELS[c.reasonCode]}</td>
+                    <td className="px-4 py-2.5 text-navy-200">{c.notes || REASON_LABELS[c.reasonCode] || '—'}</td>
                     <td className="px-4 py-2.5 text-navy-400">{reqN}</td>
                     <td className="px-4 py-2.5">
                       <Badge variant={STATUS_VARIANT[c.status] ?? 'neutral'}>{c.status}</Badge>

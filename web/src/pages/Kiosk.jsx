@@ -219,6 +219,8 @@ export default function Kiosk() {
   }, [])
 
   // ── Load models + data ─────────────────────────────────────────────────────
+  const [reloadKey, setReloadKey] = useState(0)
+
   useEffect(() => {
     if (!tenantCode) { setPhaseSync('setup'); return }
 
@@ -285,7 +287,7 @@ export default function Kiosk() {
       }
     })()
     return () => { cancelled = true }
-  }, [getFaceApi, tenantCode])
+  }, [getFaceApi, tenantCode, reloadKey])
 
   // ── Camera ─────────────────────────────────────────────────────────────────
   const startCamera = async (deviceId) => {
@@ -587,8 +589,14 @@ export default function Kiosk() {
         {/* Camera panel */}
         <div className="flex-1 relative flex items-center justify-center bg-black overflow-hidden">
           {(phase === 'error' || phase === 'no_face') ? (
-            <div className="text-center px-8">
+            <div className="text-center px-8 space-y-4">
               <p className="text-xl text-navy-300">{loadMsg}</p>
+              <button
+                onClick={() => setReloadKey(k => k + 1)}
+                className="px-5 py-2 text-sm font-medium bg-navy-700 hover:bg-navy-600 text-navy-100 border border-navy-500 rounded-md transition-colors"
+              >
+                Retry
+              </button>
             </div>
           ) : (
             <div className="relative" style={{ maxWidth: 700, width: '100%' }}>
@@ -628,17 +636,6 @@ export default function Kiosk() {
                     className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-navy-950 via-navy-950/80 to-transparent px-6 pt-12 pb-5 rounded-b-2xl"
                   >
                     <p className="text-4xl font-bold">{confirmed.name}</p>
-                    <div className="flex items-center gap-3 mt-2">
-                      <div className="flex-1 bg-navy-600 h-2 rounded-full overflow-hidden">
-                        <div
-                          className="bg-signal-success h-2 rounded-full transition-all duration-700"
-                          style={{ width: `${Math.round(confirmed.confidence * 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-signal-success font-semibold text-sm whitespace-nowrap">
-                        {Math.round(confirmed.confidence * 100)}% match
-                      </span>
-                    </div>
                   </motion.div>
                 )}
               </AnimatePresence>

@@ -26,7 +26,8 @@ async function listBranches({ user }) {
       AND is_active = TRUE
   `;
 
-  if (user.role !== 'super_admin' && user.branchId) {
+  const crossBranchRoles = ['super_admin', 'client_admin'];
+  if (!crossBranchRoles.includes(user.role) && user.branchId) {
     params.push(user.branchId);
     query += ` AND id = $${params.length}`;
   }

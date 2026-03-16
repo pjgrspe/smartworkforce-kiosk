@@ -2,16 +2,52 @@
  * Auth Routes — POST /api/auth/login
  */
 
-const express = require('express');
-const bcrypt  = require('bcryptjs');
-const router  = express.Router();
+const express   = require('express');
+const bcrypt    = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
+const router    = express.Router();
 const { authenticate } = require('../middleware/auth');
 const { signToken } = require('../middleware/auth');
 const logger  = require('../utils/logger');
 const { getUserRepository } = require('../repositories/user');
+const { getRuntimeMode } = require('../config/runtime');
+
+const CENTRAL_ADMIN_ROLES = ['super_admin'];
+
+// 10 attempts per IP per 15 minutes on the login endpoint
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logger.warn(`Rate limit hit on login from IP ${req.ip}`);
+    res.status(429).json({ error: 'Too many login attempts. Please try again in 15 minutes.' });
+  },
+});
+
+async function proxyCentralLogin(email, password) {
+  const centralUrl = process.env.CENTRAL_SYNC_URL;
+  if (!centralUrl) return null;
+
+  const endpoint = `${centralUrl.replace(/\/$/, '')}/api/auth/login`;
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+
+  if (!response.ok) return null;
+
+  const data = await response.json();
+  if (!data.token || !data.user) return null;
+  if (!CENTRAL_ADMIN_ROLES.includes(data.user.role)) return null;
+
+  return { ...data, centralUrl: `${centralUrl.replace(/\/$/, '')}/api` };
+}
 
 // POST /api/auth/login
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -22,6 +58,20 @@ router.post('/login', async (req, res) => {
   const cleanEmail = String(email).toLowerCase().trim();
 
   try {
+    // On branch machines: proxy super_admin/client_admin logins to HQ so they
+    // always authenticate against the central database and get redirected there.
+    if (getRuntimeMode() === 'BRANCH' && process.env.CENTRAL_SYNC_URL) {
+      try {
+        const centralResult = await proxyCentralLogin(cleanEmail, String(password));
+        if (centralResult) {
+          logger.info(`Central admin login proxied to HQ: ${cleanEmail}`);
+          return res.json(centralResult);
+        }
+      } catch (err) {
+        logger.warn(`Central login proxy failed, falling back to local auth: ${err.message}`);
+      }
+    }
+
     const userRepo = getUserRepository();
     const user = await userRepo.findByEmail(cleanEmail);
     if (!user) {

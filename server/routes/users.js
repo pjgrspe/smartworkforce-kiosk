@@ -5,9 +5,10 @@ const { authenticate, authorize, signToken } = require('../middleware/auth');
 const logger  = require('../utils/logger');
 const { getUserRepository } = require('../repositories/user');
 const { getBranchRepository } = require('../repositories/branch');
+const { writeAuditLog } = require('../services/audit');
 const { getEmployeeRepository } = require('../repositories/employee');
 
-const CLIENT_ADMIN_MANAGEABLE_ROLES = ['hr_payroll', 'branch_manager', 'employee', 'auditor'];
+const CLIENT_ADMIN_MANAGEABLE_ROLES = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor'];
 const MAX_PROFILE_PICTURE_LENGTH = 2_100_000;
 
 function sanitizeProfilePicture(value) {
@@ -217,6 +218,7 @@ router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
     });
 
     logger.info(`User created: ${user.email} role=${user.role}`);
+    writeAuditLog({ tableName: 'users', recordId: user._id || user.id, operation: 'INSERT', changedBy: req.user.sub, afterData: { email: user.email, role: user.role, branchId: user.branchId }, ipAddress: req.ip });
     return res.status(201).json({ data: user });
   } catch (err) {
     logger.error('POST /users:', err.message);
@@ -233,7 +235,15 @@ router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) 
 
     const updates = { ...req.body };
     delete updates.email; // email is immutable once set
+    const { oldPassword } = updates;
+    delete updates.oldPassword;
     if (updates.password) {
+      if (req.params.id === req.user.sub) {
+        if (!oldPassword) return res.status(400).json({ error: 'Current password is required to change your own password' });
+        const currentHash = await userRepo.findPasswordById(req.user.sub);
+        const matches = await bcrypt.compare(String(oldPassword), currentHash);
+        if (!matches) return res.status(400).json({ error: 'Current password is incorrect' });
+      }
       updates.passwordHash = await bcrypt.hash(updates.password, 12);
       delete updates.password;
     }
@@ -265,6 +275,7 @@ router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) 
 
     const user = await userRepo.updateUserById(req.params.id, updates);
     if (!user) return res.status(404).json({ error: 'Not found' });
+    writeAuditLog({ tableName: 'users', recordId: req.params.id, operation: 'UPDATE', changedBy: req.user.sub, beforeData: { role: existingUser.role, branchId: existingUser.branchId }, afterData: { role: user.role, branchId: user.branchId }, ipAddress: req.ip });
     return res.json({ data: user });
   } catch (err) {
     logger.error('PATCH /users:', err.message);
@@ -287,6 +298,7 @@ router.delete('/:id', authorize('super_admin', 'client_admin'), async (req, res)
 
     enforceManageableRole(existingUser.role, req);
     await userRepo.deleteScopedUser({ requestUser: req.user, userId: req.params.id });
+    writeAuditLog({ tableName: 'users', recordId: req.params.id, operation: 'DELETE', changedBy: req.user.sub, beforeData: { email: existingUser.email, role: existingUser.role }, ipAddress: req.ip });
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

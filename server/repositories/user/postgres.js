@@ -154,13 +154,16 @@ async function listUsers({ requestUser }) {
   const params = [];
   let where = 'WHERE 1=1';
 
-  if (requestUser.role !== 'super_admin') {
+  if (!['super_admin', 'client_admin'].includes(requestUser.role)) {
     params.push(requestUser.tenantId);
     where += ` AND u.tenant_id = $${params.length}`;
     if (requestUser.branchId) {
       params.push(requestUser.branchId);
       where += ` AND u.branch_id = $${params.length}`;
     }
+  } else if (requestUser.role === 'client_admin') {
+    params.push(requestUser.tenantId);
+    where += ` AND u.tenant_id = $${params.length}`;
   }
 
   const { rows } = await pool.query(
@@ -201,13 +204,16 @@ async function findScopedUser({ requestUser, userId }) {
   const params = [userId];
   let where = 'WHERE id = $1';
 
-  if (requestUser.role !== 'super_admin') {
+  if (!['super_admin', 'client_admin'].includes(requestUser.role)) {
     params.push(requestUser.tenantId);
     where += ` AND tenant_id = $${params.length}`;
     if (requestUser.branchId) {
       params.push(requestUser.branchId);
       where += ` AND branch_id = $${params.length}`;
     }
+  } else if (requestUser.role === 'client_admin') {
+    params.push(requestUser.tenantId);
+    where += ` AND tenant_id = $${params.length}`;
   }
 
   const { rows } = await pool.query(
@@ -308,13 +314,16 @@ async function deleteScopedUser({ requestUser, userId }) {
   const params = [userId];
   let where = 'WHERE id = $1';
 
-  if (requestUser.role !== 'super_admin') {
+  if (!['super_admin', 'client_admin'].includes(requestUser.role)) {
     params.push(requestUser.tenantId);
     where += ` AND tenant_id = $${params.length}`;
     if (requestUser.branchId) {
       params.push(requestUser.branchId);
       where += ` AND branch_id = $${params.length}`;
     }
+  } else if (requestUser.role === 'client_admin') {
+    params.push(requestUser.tenantId);
+    where += ` AND tenant_id = $${params.length}`;
   }
 
   const existing = await pool.query(
