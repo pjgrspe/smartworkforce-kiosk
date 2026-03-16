@@ -5,10 +5,10 @@
 const express = require('express');
 const bcrypt  = require('bcryptjs');
 const router  = express.Router();
-const User    = require('../models/User');
 const { authenticate } = require('../middleware/auth');
 const { signToken } = require('../middleware/auth');
 const logger  = require('../utils/logger');
+const { getUserRepository } = require('../repositories/user');
 
 // POST /api/auth/login
 router.post('/login', async (req, res) => {
@@ -22,7 +22,8 @@ router.post('/login', async (req, res) => {
   const cleanEmail = String(email).toLowerCase().trim();
 
   try {
-    const user = await User.findOne({ email: cleanEmail }).lean();
+    const userRepo = getUserRepository();
+    const user = await userRepo.findByEmail(cleanEmail);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
@@ -32,7 +33,7 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    await User.findByIdAndUpdate(user._id, { lastLogin: new Date() });
+    await userRepo.touchLastLogin(user._id || user.id);
 
     const token = signToken(user);
 
@@ -41,7 +42,7 @@ router.post('/login', async (req, res) => {
     return res.json({
       token,
       user: {
-        id:       user._id,
+        id:       user._id || user.id,
         email:    user.email,
         role:     user.role,
         tenantId: user.tenantId,
@@ -66,12 +67,13 @@ router.post('/verify-password', authenticate, async (req, res) => {
   }
 
   try {
-    const user = await User.findById(req.user.sub).select('passwordHash').lean();
-    if (!user) {
+    const userRepo = getUserRepository();
+    const passwordHash = await userRepo.findPasswordById(req.user.sub);
+    if (!passwordHash) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    const ok = await bcrypt.compare(String(password), user.passwordHash);
+    const ok = await bcrypt.compare(String(password), passwordHash);
     if (!ok) {
       return res.status(401).json({ error: 'Incorrect password' });
     }

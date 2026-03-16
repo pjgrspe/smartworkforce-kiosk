@@ -92,6 +92,15 @@ export const getMyAttendance = (params = {}) => {
   return request('GET', `/attendance/me${qs ? '?' + qs : ''}`)
 }
 
+// ── Platform Status ────────────────────────────────────────────────
+export const getHealth = () => request('GET', '/health')
+export const getSyncStatus = (params = {}) => {
+  const qs = new URLSearchParams(
+    Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '')
+  ).toString()
+  return request('GET', `/sync/status${qs ? '?' + qs : ''}`)
+}
+
 // ── Branches ─────────────────────────────────────────────────────
 export const getBranches   = ()          => request('GET',    '/branches')
 export const createBranch  = (body)      => request('POST',   '/branches', body)

@@ -4,15 +4,12 @@
  */
 
 const express        = require('express');
-const mongoose       = require('mongoose');
 const router         = express.Router();
-const Tenant         = require('../models/Tenant');
-const Employee       = require('../models/Employee');
-const AttendanceLog  = require('../models/AttendanceLog');
+const { checkDatabaseConnection } = require('../config/database');
+const { getTenantRepository } = require('../repositories/tenant');
+const { getKioskRepository } = require('../repositories/kiosk');
 const logger         = require('../utils/logger');
 const offlineBuf     = require('../services/offline-buffer');
-
-const isDbOnline = () => mongoose.connection.readyState === 1;
 
 function normalizeTenantCode(raw) {
   const normalized = (raw || '').toString().toUpperCase().trim();
@@ -26,7 +23,8 @@ const resolveTenant = async (req, res, next) => {
   if (!code) return res.status(400).json({ error: 'tenant code is required' });
 
   try {
-    const tenant = await Tenant.findOne({ code, isActive: true }).lean();
+    const tenantRepo = getTenantRepository();
+    const tenant = await tenantRepo.findActiveByCode(code);
     if (!tenant) return res.status(404).json({ error: 'Invalid company code' });
     req.tenantId = tenant._id;
     req.tenant   = tenant;
@@ -40,31 +38,27 @@ const resolveTenant = async (req, res, next) => {
 // Returns active employees with face-api.js descriptors (no sensitive data).
 // Falls back to SQLite cache when MongoDB is unreachable.
 router.get('/employees', resolveTenant, async (req, res) => {
-  if (!isDbOnline()) {
+  if (!(await checkDatabaseConnection())) {
     const cached = offlineBuf.getCachedEmployees(req.tenantId);
     if (cached.length) {
-      logger.warn('GET /kiosk/employees: DB offline — serving employee cache (%d employees)', cached.length);
+      logger.warn('GET /kiosk/employees: DB offline - serving employee cache (%d employees)', cached.length);
       return res.json({ data: cached, offline: true });
     }
     return res.status(503).json({ error: 'Database offline and no local cache available' });
   }
 
   try {
-    const employees = await Employee.find(
-      { tenantId: req.tenantId, isActive: true, 'employment.status': 'active' },
-      'firstName lastName employeeCode branchId faceData.faceApiDescriptors faceData.enrollmentDate'
-    ).lean();
+    const kioskRepo = getKioskRepository();
+    const employees = await kioskRepo.getEmployeesForKiosk(req.tenantId);
 
-    // Update local cache so next offline session has fresh data
     offlineBuf.cacheEmployees(req.tenantId, employees);
 
     return res.json({ data: employees });
   } catch (err) {
     logger.error('GET /kiosk/employees:', err.message);
-    // MongoDB query failed mid-request — try cache as last resort
     const cached = offlineBuf.getCachedEmployees(req.tenantId);
     if (cached.length) {
-      logger.warn('GET /kiosk/employees: DB error — serving employee cache (%d employees)', cached.length);
+      logger.warn('GET /kiosk/employees: DB error - serving employee cache (%d employees)', cached.length);
       return res.json({ data: cached, offline: true });
     }
     return res.status(500).json({ error: err.message });
@@ -75,16 +69,8 @@ router.get('/employees', resolveTenant, async (req, res) => {
 // Returns the last 15 punches today (for the recent activity feed).
 router.get('/recent', resolveTenant, async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const logs = await AttendanceLog.find(
-      { tenantId: req.tenantId, timestamp: { $gte: today } }
-    )
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .sort({ timestamp: -1 })
-      .limit(15)
-      .lean();
+    const kioskRepo = getKioskRepository();
+    const logs = await kioskRepo.getRecentAttendance(req.tenantId, 15);
 
     return res.json({ data: logs });
   } catch (err) {
@@ -95,7 +81,7 @@ router.get('/recent', resolveTenant, async (req, res) => {
 
 // POST /api/kiosk/punch?tenant=ACME
 // Body: { tenant, employeeId, type, confidenceScore }
-// Queues to SQLite offline buffer when MongoDB is unreachable.
+// Queues to SQLite offline buffer when the database is unreachable.
 router.post('/punch', resolveTenant, async (req, res) => {
   const { employeeId, type, confidenceScore } = req.body;
 
@@ -107,7 +93,7 @@ router.post('/punch', resolveTenant, async (req, res) => {
   const now = new Date();
 
   // ── Offline path ────────────────────────────────────────────────────────────
-  if (!isDbOnline()) {
+  if (!(await checkDatabaseConnection())) {
     offlineBuf.queuePunch({
       tenantId: req.tenantId, branchId: null,
       employeeId, type, timestamp: now, confidenceScore,
@@ -120,36 +106,24 @@ router.post('/punch', resolveTenant, async (req, res) => {
     });
   }
 
-  // ── Online path ─────────────────────────────────────────────────────────────
   try {
-    // Verify employee belongs to this tenant
-    const emp = await Employee.findOne(
-      { _id: employeeId, tenantId: req.tenantId, isActive: true },
-      'firstName lastName employeeCode branchId'
-    ).lean();
-    if (!emp) return res.status(404).json({ error: 'Employee not found' });
-
-    const log = await new AttendanceLog({
-      tenantId:        req.tenantId,
-      branchId:        emp.branchId,
+    const kioskRepo = getKioskRepository();
+    const created = await kioskRepo.createPunch({
+      tenantId: req.tenantId,
       employeeId,
       type,
-      timestamp:       now,
-      source:          'face_kiosk',
-      confidenceScore: confidenceScore != null ? Number(confidenceScore) : undefined,
-      synced:          true,
-      syncedAt:        now,
-    }).save();
+      confidenceScore,
+      timestamp: now,
+    });
+    if (!created) return res.status(404).json({ error: 'Employee not found' });
 
-    const populated = await AttendanceLog.findById(log._id)
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .lean();
-
-    logger.info(`Kiosk punch: ${type} - ${emp.firstName} ${emp.lastName}`);
-    return res.status(201).json({ data: populated });
+    const employeeName = created.employeeId
+      ? `${created.employeeId.firstName} ${created.employeeId.lastName}`.trim()
+      : employeeId;
+    logger.info(`Kiosk punch: ${type} - ${employeeName}`);
+    return res.status(201).json({ data: created });
   } catch (err) {
-    // MongoDB query failed after readyState check — queue as fallback
-    logger.error('POST /kiosk/punch DB error — buffering offline:', err.message);
+    logger.error('POST /kiosk/punch DB error - buffering offline:', err.message);
     offlineBuf.queuePunch({
       tenantId: req.tenantId, branchId: null,
       employeeId, type, timestamp: now, confidenceScore,

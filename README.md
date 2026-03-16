@@ -1,5 +1,11 @@
 # DE WEBNET Facial Recognition Attendance System
 
+## Migration Playbook
+
+For the PostgreSQL + branch offline-first migration, follow:
+
+- `POSTGRES_OFFLINE_MIGRATION_PLAYBOOK.md`
+
 An enterprise-grade facial recognition attendance system with offline-first capabilities, built for Windows deployment.
 
 ## Features

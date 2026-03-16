@@ -1,11 +1,11 @@
 const express = require('express');
 const router  = express.Router();
 const bcrypt  = require('bcryptjs');
-const Branch  = require('../models/Branch');
-const Employee = require('../models/Employee');
-const User    = require('../models/User');
 const { authenticate, authorize, signToken } = require('../middleware/auth');
 const logger  = require('../utils/logger');
+const { getUserRepository } = require('../repositories/user');
+const { getBranchRepository } = require('../repositories/branch');
+const { getEmployeeRepository } = require('../repositories/employee');
 
 const CLIENT_ADMIN_MANAGEABLE_ROLES = ['hr_payroll', 'branch_manager', 'employee', 'auditor'];
 const MAX_PROFILE_PICTURE_LENGTH = 2_100_000;
@@ -34,11 +34,11 @@ function sanitizeProfilePicture(value) {
 async function resolveAssignableBranch(branchId, req) {
   if (!branchId) return null;
 
-  const branchFilter = req.user.role === 'super_admin'
-    ? { _id: branchId, isActive: true }
-    : { _id: branchId, tenantId: req.user.tenantId, isActive: true };
-
-  const branch = await Branch.findOne(branchFilter).select('_id tenantId').lean();
+  const branchRepo = getBranchRepository();
+  const branch = await branchRepo.findActiveBranchById({
+    id: branchId,
+    tenantId: req.user.role === 'super_admin' ? null : req.user.tenantId,
+  });
   if (!branch) {
     throw new Error('Invalid branch for current tenant');
   }
@@ -60,11 +60,11 @@ function enforceManageableRole(role, req) {
 async function validateEmployeeAccess(employeeId, req) {
   if (!employeeId) return null;
 
-  const employee = await Employee.findOne({
-    _id: employeeId,
+  const employeeRepo = getEmployeeRepository();
+  const employee = await employeeRepo.findActiveEmployeeById({
+    id: employeeId,
     tenantId: req.user.tenantId,
-    isActive: true,
-  }).select('_id tenantId branchId firstName lastName employeeCode').lean();
+  });
 
   if (!employee) {
     throw new Error('Invalid employee for current tenant');
@@ -82,11 +82,8 @@ router.use(authenticate);
 // GET /api/users/me — current authenticated profile
 router.get('/me', async (req, res) => {
   try {
-    const user = await User.findById(req.user.sub)
-      .select('-passwordHash')
-      .populate('branchId', 'name')
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .lean();
+    const userRepo = getUserRepository();
+    const user = await userRepo.findMeById(req.user.sub);
 
     if (!user) return res.status(404).json({ error: 'User not found' });
     return res.json({ data: user });
@@ -98,6 +95,7 @@ router.get('/me', async (req, res) => {
 // PATCH /api/users/me — update own profile details
 router.patch('/me', async (req, res) => {
   try {
+    const userRepo = getUserRepository();
     const { firstName, lastName, email, password, oldPassword, profilePictureUrl } = req.body || {};
     const updates = {};
 
@@ -116,7 +114,7 @@ router.patch('/me', async (req, res) => {
     if (email !== undefined) {
       const cleanEmail = String(email).toLowerCase().trim();
       if (!cleanEmail) return res.status(400).json({ error: 'email cannot be empty' });
-      const duplicate = await User.findOne({ email: cleanEmail, _id: { $ne: req.user.sub } }).select('_id').lean();
+      const duplicate = await userRepo.findByEmailExcludingId(cleanEmail, req.user.sub);
       if (duplicate) return res.status(409).json({ error: 'Email already in use' });
       updates.email = cleanEmail;
     }
@@ -135,10 +133,10 @@ router.patch('/me', async (req, res) => {
         return res.status(400).json({ error: 'oldPassword is required to change password' });
       }
 
-      const currentUser = await User.findById(req.user.sub).select('passwordHash').lean();
-      if (!currentUser) return res.status(404).json({ error: 'User not found' });
+      const currentPasswordHash = await userRepo.findPasswordById(req.user.sub);
+      if (!currentPasswordHash) return res.status(404).json({ error: 'User not found' });
 
-      const oldPasswordMatches = await bcrypt.compare(String(oldPassword), currentUser.passwordHash);
+      const oldPasswordMatches = await bcrypt.compare(String(oldPassword), currentPasswordHash);
       if (!oldPasswordMatches) {
         return res.status(400).json({ error: 'Current password is incorrect' });
       }
@@ -155,11 +153,7 @@ router.patch('/me', async (req, res) => {
       return res.status(400).json({ error: 'No profile fields to update' });
     }
 
-    const user = await User.findByIdAndUpdate(
-      req.user.sub,
-      { $set: updates },
-      { new: true }
-    ).select('-passwordHash').lean();
+    const user = await userRepo.updateSelf(req.user.sub, updates);
 
     if (!user) return res.status(404).json({ error: 'User not found' });
 
@@ -174,18 +168,8 @@ router.patch('/me', async (req, res) => {
 // GET /api/users — list users (super_admin sees all, others see own tenant)
 router.get('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    const filter = req.user.role === 'super_admin'
-      ? {}
-      : { tenantId: req.user.tenantId };
-    if (req.user.role !== 'super_admin' && req.user.branchId) {
-      filter.branchId = req.user.branchId;
-    }
-    const users = await User.find(filter)
-      .select('-passwordHash')
-      .sort('lastName')
-      .populate('branchId', 'name')
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .lean();
+    const userRepo = getUserRepository();
+    const users = await userRepo.listUsers({ requestUser: req.user });
     return res.json({ data: users });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -195,12 +179,13 @@ router.get('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (r
 // POST /api/users — create user
 router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
+    const userRepo = getUserRepository();
     const { email, password, role, firstName, lastName, branchId, tenantId, employeeId } = req.body;
     if (!email || !password || !role || !firstName || !lastName) {
       return res.status(400).json({ error: 'email, password, role, firstName and lastName are required' });
     }
 
-    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    const existing = await userRepo.findByEmail(email.toLowerCase().trim());
     if (existing) return res.status(409).json({ error: 'Email already in use' });
 
     enforceManageableRole(role, req);
@@ -219,7 +204,7 @@ router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
       : req.user.tenantId;
 
     const passwordHash = await bcrypt.hash(password, 12);
-    const user = await new User({
+    const user = await userRepo.createUser({
       email:        email.toLowerCase().trim(),
       passwordHash,
       role,
@@ -229,11 +214,10 @@ router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
       tenantId: effectiveTenantId,
       employeeId: assignedEmployee?._id || null,
       isActive: true
-    }).save();
+    });
 
-    const { passwordHash: _, ...userData } = user.toObject();
     logger.info(`User created: ${user.email} role=${user.role}`);
-    return res.status(201).json({ data: userData });
+    return res.status(201).json({ data: user });
   } catch (err) {
     logger.error('POST /users:', err.message);
     return res.status(400).json({ error: err.message });
@@ -243,10 +227,8 @@ router.post('/', authorize('super_admin', 'client_admin'), async (req, res) => {
 // PATCH /api/users/:id
 router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
-    const filter = req.user.role === 'super_admin'
-      ? { _id: req.params.id }
-      : { _id: req.params.id, tenantId: req.user.tenantId, ...(req.user.branchId ? { branchId: req.user.branchId } : {}) };
-    const existingUser = await User.findOne(filter).select('role branchId employeeId').lean();
+    const userRepo = getUserRepository();
+    const existingUser = await userRepo.findScopedUser({ requestUser: req.user, userId: req.params.id });
     if (!existingUser) return res.status(404).json({ error: 'Not found' });
 
     const updates = { ...req.body };
@@ -281,11 +263,7 @@ router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) 
     updates.employeeId = assignedEmployee?._id || null;
     updates.tenantId = effectiveTenantId;
 
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { $set: updates },
-      { new: true }
-    ).select('-passwordHash').lean();
+    const user = await userRepo.updateUserById(req.params.id, updates);
     if (!user) return res.status(404).json({ error: 'Not found' });
     return res.json({ data: user });
   } catch (err) {
@@ -297,20 +275,18 @@ router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) 
 // DELETE /api/users/:id
 router.delete('/:id', authorize('super_admin', 'client_admin'), async (req, res) => {
   try {
+    const userRepo = getUserRepository();
     if (req.params.id === req.user.sub) {
       return res.status(400).json({ error: 'Cannot delete your own account' });
     }
 
-    const filter = req.user.role === 'super_admin'
-      ? { _id: req.params.id }
-      : { _id: req.params.id, tenantId: req.user.tenantId, ...(req.user.branchId ? { branchId: req.user.branchId } : {}) };
-    const existingUser = await User.findOne(filter).select('role').lean();
+    const existingUser = await userRepo.findScopedUser({ requestUser: req.user, userId: req.params.id });
     if (!existingUser) {
       return res.status(404).json({ error: 'Not found' });
     }
 
     enforceManageableRole(existingUser.role, req);
-    await User.deleteOne(filter);
+    await userRepo.deleteScopedUser({ requestUser: req.user, userId: req.params.id });
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

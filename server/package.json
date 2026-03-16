@@ -7,8 +7,16 @@
     "start": "node index.js",
     "dev": "nodemon index.js",
     "test": "node scripts/test.js",
+    "test:sync-smoke": "node scripts/smoke-sync.js",
+    "pilot:capture-status": "node scripts/pilot-status-capture.js",
     "test:watch": "jest --watch",
-    "test:ci": "node scripts/test.js"
+    "test:ci": "node scripts/test.js",
+    "db:migrate:postgres": "node scripts/run-postgres-migration.js",
+    "db:migrate:postgres:core": "node scripts/run-postgres-migration.js 0001_core_postgres.sql",
+    "db:migrate:postgres:sync": "node scripts/run-postgres-migration.js 0002_sync_checkpoints.sql",
+    "db:migrate:postgres:events": "node scripts/run-postgres-migration.js 0003_sync_events.sql",
+    "db:migrate:postgres:sync-failures": "node scripts/run-postgres-migration.js 0004_sync_failure_handling.sql",
+    "db:migrate:postgres:domains": "node scripts/run-postgres-migration.js 0005_domain_tables.sql"
   },
   "dependencies": {
     "@seald-io/nedb": "^4.1.2",
@@ -20,6 +28,7 @@
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.2.1",
     "multer": "^2.1.1",
+    "pg": "^8.13.3",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
     "ws": "^8.15.0"
@@ -35,6 +44,7 @@
     "websocket",
     "offline-first",
     "mongodb",
+    "postgresql",
     "facial-recognition"
   ],
   "author": "",

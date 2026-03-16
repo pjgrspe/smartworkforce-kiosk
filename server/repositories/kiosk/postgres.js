@@ -1,0 +1,159 @@
+const { getPool } = require('../../config/postgres');
+
+function mapEmployeeForKiosk(row) {
+  return {
+    _id: row.id,
+    id: row.id,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    employeeCode: row.employee_code,
+    branchId: row.branch_id,
+    faceData: {
+      faceApiDescriptors: row.face_api_descriptors || [],
+      enrollmentDate: row.enrollment_date,
+    },
+  };
+}
+
+function mapRecentAttendance(row) {
+  return {
+    _id: row.id,
+    id: row.id,
+    tenantId: row.tenant_id,
+    branchId: row.branch_id,
+    timestamp: row.timestamp,
+    type: row.type,
+    source: row.source,
+    confidenceScore: row.confidence_score == null ? null : Number(row.confidence_score),
+    synced: row.synced,
+    syncedAt: row.synced_at,
+    employeeId: row.employee_ref_id
+      ? {
+        _id: row.employee_ref_id,
+        firstName: row.employee_first_name,
+        lastName: row.employee_last_name,
+        employeeCode: row.employee_code,
+      }
+      : row.employee_id,
+  };
+}
+
+async function getEmployeesForKiosk(tenantId) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      SELECT
+        id,
+        first_name,
+        last_name,
+        employee_code,
+        branch_id,
+        face_data->'faceApiDescriptors' AS face_api_descriptors,
+        face_data->>'enrollmentDate' AS enrollment_date
+      FROM employees
+      WHERE tenant_id = $1
+        AND is_active = TRUE
+        AND COALESCE(employment->>'status', 'active') = 'active'
+      ORDER BY last_name ASC, first_name ASC
+    `,
+    [tenantId],
+  );
+  return rows.map(mapEmployeeForKiosk);
+}
+
+async function getRecentAttendance(tenantId, limit = 15) {
+  const pool = getPool();
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const { rows } = await pool.query(
+    `
+      SELECT
+        al.*,
+        e.id AS employee_ref_id,
+        e.first_name AS employee_first_name,
+        e.last_name AS employee_last_name,
+        e.employee_code AS employee_code
+      FROM attendance_logs al
+      LEFT JOIN employees e ON e.id = al.employee_id
+      WHERE al.tenant_id = $1
+        AND al.timestamp >= $2
+      ORDER BY al.timestamp DESC
+      LIMIT $3
+    `,
+    [tenantId, today, limit],
+  );
+  return rows.map(mapRecentAttendance);
+}
+
+async function createPunch({ tenantId, employeeId, type, confidenceScore, timestamp }) {
+  const pool = getPool();
+  const employeeResult = await pool.query(
+    `
+      SELECT id, branch_id, first_name, last_name, employee_code
+      FROM employees
+      WHERE id = $1 AND tenant_id = $2 AND is_active = TRUE
+      LIMIT 1
+    `,
+    [employeeId, tenantId],
+  );
+
+  if (!employeeResult.rowCount) return null;
+  const employee = employeeResult.rows[0];
+
+  const { rows } = await pool.query(
+    `
+      INSERT INTO attendance_logs (
+        tenant_id, branch_id, employee_id, timestamp, type, source, confidence_score, synced, synced_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 'face_kiosk', $6, TRUE, NOW())
+      RETURNING *
+    `,
+    [tenantId, employee.branch_id, employeeId, timestamp, type, confidenceScore != null ? Number(confidenceScore) : null],
+  );
+
+  return {
+    _id: rows[0].id,
+    id: rows[0].id,
+    tenantId: rows[0].tenant_id,
+    branchId: rows[0].branch_id,
+    timestamp: rows[0].timestamp,
+    type: rows[0].type,
+    source: rows[0].source,
+    confidenceScore: rows[0].confidence_score == null ? null : Number(rows[0].confidence_score),
+    synced: rows[0].synced,
+    syncedAt: rows[0].synced_at,
+    employeeId: {
+      _id: employee.id,
+      firstName: employee.first_name,
+      lastName: employee.last_name,
+      employeeCode: employee.employee_code,
+    },
+  };
+}
+
+async function flushQueuedPunch(punch) {
+  const pool = getPool();
+  await pool.query(
+    `
+      INSERT INTO attendance_logs (
+        tenant_id, branch_id, employee_id, timestamp, type, source, confidence_score, synced, synced_at
+      )
+      VALUES ($1, $2, $3, $4, $5, 'face_kiosk', $6, TRUE, NOW())
+    `,
+    [
+      punch.tenantId,
+      punch.branchId || null,
+      punch.employeeId,
+      new Date(punch.timestamp),
+      punch.type,
+      punch.confidenceScore != null ? Number(punch.confidenceScore) : null,
+    ],
+  );
+}
+
+module.exports = {
+  getEmployeesForKiosk,
+  getRecentAttendance,
+  createPunch,
+  flushQueuedPunch,
+};

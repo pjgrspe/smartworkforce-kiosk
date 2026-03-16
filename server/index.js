@@ -4,9 +4,11 @@ const express      = require('express');
 const cors         = require('cors');
 const mongoose     = require('mongoose');
 const logger       = require('./utils/logger');
-const { connectMongoDB } = require('./config/mongodb');
+const { connectDatabase, getDatabaseProvider } = require('./config/database');
+const { getRuntimeMode } = require('./config/runtime');
 const offlineBuf   = require('./services/offline-buffer');
-const AttendanceLog = require('./models/AttendanceLog');
+const { startSyncWorker } = require('./services/sync-worker');
+const { getKioskRepository } = require('./repositories/kiosk');
 
 const app = express();
 
@@ -42,28 +44,25 @@ app.use('/api/corrections', require('./routes/corrections'));
 app.use('/api/tenants',     require('./routes/tenants'));
 app.use('/api/payroll',     require('./routes/payroll'));
 app.use('/api/kiosk',       require('./routes/kiosk'));
-app.get('/api/health', (_, res) => res.json({ status: 'ok', ts: new Date() }));
+app.use('/api/sync',        require('./routes/sync'));
+app.get('/api/health', (_, res) => res.json({
+  status: 'ok',
+  ts: new Date(),
+  provider: getDatabaseProvider(),
+  mode: getRuntimeMode(),
+}));
 
 // ── Offline buffer flush ───────────────────────────────────────────────────────
 async function flushOfflineBuffer() {
   const pending = offlineBuf.getPendingPunches();
   if (!pending.length) return;
 
-  logger.info(`Flushing ${pending.length} offline punch(es) to MongoDB...`);
+  logger.info(`Flushing ${pending.length} offline punch(es) to active database provider...`);
+  const kioskRepo = getKioskRepository();
   let flushed = 0;
   for (const punch of pending) {
     try {
-      await new AttendanceLog({
-        tenantId:        punch.tenantId,
-        branchId:        punch.branchId || undefined,
-        employeeId:      punch.employeeId,
-        type:            punch.type,
-        timestamp:       new Date(punch.timestamp),
-        source:          'face_kiosk',
-        confidenceScore: punch.confidenceScore != null ? punch.confidenceScore : undefined,
-        synced:          true,
-        syncedAt:        new Date(),
-      }).save();
+      await kioskRepo.flushQueuedPunch(punch);
       offlineBuf.deletePunch(punch.id);
       flushed++;
     } catch (err) {
@@ -76,10 +75,11 @@ async function flushOfflineBuffer() {
 
 const PORT = parseInt(process.env.HTTP_PORT || '3000');
 
-connectMongoDB()
+connectDatabase()
   .then(() => {
     // Flush any punches that were queued while the server was offline
     flushOfflineBuffer();
+    startSyncWorker();
     // Re-flush every 30 seconds in case connectivity drops and returns mid-session
     setInterval(flushOfflineBuffer, 30_000);
     app.listen(PORT, () => logger.info(`✅ DE WEBNET Server running on http://localhost:${PORT}`));
@@ -90,10 +90,12 @@ connectMongoDB()
   });
 
 // Also flush when mongoose reconnects after a dropped connection
-mongoose.connection.on('reconnected', () => {
-  logger.info('MongoDB reconnected — flushing offline buffer...');
-  flushOfflineBuffer();
-});
+if (getDatabaseProvider() === 'mongo') {
+  mongoose.connection.on('reconnected', () => {
+    logger.info('MongoDB reconnected - flushing offline buffer...');
+    flushOfflineBuffer();
+  });
+}
 
 process.on('uncaughtException',  err => { logger.error('Uncaught exception:',  err); process.exit(1); });
 process.on('unhandledRejection', err => { logger.error('Unhandled rejection:', err); process.exit(1); });

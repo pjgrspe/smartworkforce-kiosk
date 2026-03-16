@@ -1,10 +1,10 @@
 const express = require('express');
 const router  = express.Router();
-const AttendanceCorrectionRequest = require('../models/AttendanceCorrectionRequest');
-const AttendanceLog = require('../models/AttendanceLog');
-const Employee = require('../models/Employee');
 const { authenticate, authorize } = require('../middleware/auth');
 const logger  = require('../utils/logger');
+const { getCorrectionRepository } = require('../repositories/correction');
+const { getAttendanceRepository } = require('../repositories/attendance');
+const { getEmployeeRepository } = require('../repositories/employee');
 
 const REVIEWER_ROLES = ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager'];
 const ATTENDANCE_TYPES = ['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'];
@@ -57,11 +57,13 @@ async function applyAttendanceAdjustment(correction, reviewerId) {
   const adjustment = correction.after;
   if (!adjustment || !adjustment.operation) return null;
 
-  const employee = await Employee.findOne({
-    _id: correction.employeeId,
+  const employeeRepo = getEmployeeRepository();
+  const attendanceRepo = getAttendanceRepository();
+
+  const employee = await employeeRepo.findActiveEmployeeById({
+    id: correction.employeeId,
     tenantId: correction.tenantId,
-    isActive: true,
-  }).select('_id branchId').lean();
+  });
 
   if (!employee) throw new Error('Employee not found while applying correction');
 
@@ -71,56 +73,64 @@ async function applyAttendanceAdjustment(correction, reviewerId) {
     }
 
     const timestamp = buildTimestampFromAdjustment(correction.targetDate, adjustment);
-    const created = await new AttendanceLog({
+    const created = await attendanceRepo.createCorrectionAttendance({
       tenantId: correction.tenantId,
       branchId: employee.branchId,
       employeeId: correction.employeeId,
       timestamp,
       type: adjustment.type,
-      source: 'admin_correction',
-      synced: true,
-      syncedAt: new Date(),
       correctionRef: correction._id,
       notes: adjustment.notes || correction.notes || `Approved correction by ${reviewerId}`,
-    }).save();
+    });
 
-    return { action: 'created', logId: created._id.toString() };
+    return { action: 'created', logId: String(created._id || created.id) };
   }
 
   if (adjustment.operation === 'update') {
     if (!adjustment.logId) throw new Error('Adjustment logId is required for update');
 
-    const log = await AttendanceLog.findOne({
-      _id: adjustment.logId,
+    const log = await attendanceRepo.getCorrectionAttendanceLog({
+      id: adjustment.logId,
       tenantId: correction.tenantId,
       employeeId: correction.employeeId,
     });
     if (!log) throw new Error('Attendance log for update was not found');
 
+    const patch = {
+      source: 'admin_correction',
+      synced: true,
+      syncedAt: new Date(),
+      correctionRef: correction._id,
+      notes: adjustment.notes || correction.notes || log.notes,
+    };
+
     if (adjustment.type && ATTENDANCE_TYPES.includes(adjustment.type)) {
-      log.type = adjustment.type;
+      patch.type = adjustment.type;
     }
     if (adjustment.time || adjustment.timestamp) {
-      log.timestamp = buildTimestampFromAdjustment(correction.targetDate, adjustment);
+      patch.timestamp = buildTimestampFromAdjustment(correction.targetDate, adjustment);
     }
-    log.source = 'admin_correction';
-    log.synced = true;
-    log.syncedAt = new Date();
-    log.correctionRef = correction._id;
-    log.notes = adjustment.notes || correction.notes || log.notes;
-    await log.save();
 
-    return { action: 'updated', logId: log._id.toString() };
+    const updated = await attendanceRepo.updateCorrectionAttendanceLog({
+      id: adjustment.logId,
+      tenantId: correction.tenantId,
+      employeeId: correction.employeeId,
+      patch,
+    });
+
+    if (!updated) throw new Error('Attendance log for update was not found');
+
+    return { action: 'updated', logId: String(updated._id || updated.id) };
   }
 
   if (adjustment.operation === 'delete') {
     if (!adjustment.logId) throw new Error('Adjustment logId is required for delete');
 
-    const deleted = await AttendanceLog.findOneAndDelete({
-      _id: adjustment.logId,
+    const deleted = await attendanceRepo.deleteCorrectionAttendanceLog({
+      id: adjustment.logId,
       tenantId: correction.tenantId,
       employeeId: correction.employeeId,
-    }).lean();
+    });
 
     if (!deleted) throw new Error('Attendance log for delete was not found');
     return { action: 'deleted', logId: adjustment.logId };
@@ -143,13 +153,9 @@ function inferReasonCode(reasonCode, reasonText) {
 async function getScopedEmployeeIds(req) {
   if (req.user.role === 'super_admin' || !req.user.branchId) return null;
 
-  const employees = await Employee.find({
-    tenantId: req.user.tenantId,
-    branchId: req.user.branchId,
-    isActive: true,
-  }).select('_id').lean();
-
-  return employees.map((employee) => employee._id);
+  const employeeRepo = getEmployeeRepository();
+  const employees = await employeeRepo.listActive({ user: req.user });
+  return employees.map((employee) => employee._id || employee.id);
 }
 
 router.use(authenticate);
@@ -161,13 +167,12 @@ router.get('/me', async (req, res) => {
       return res.status(404).json({ error: 'No employee profile is linked to this account' });
     }
 
-    const filter = { tenantId: req.user.tenantId, employeeId: req.user.employeeId };
-    if (req.query.status) filter.status = req.query.status;
-
-    const corrections = await AttendanceCorrectionRequest.find(filter)
-      .populate('reviewedBy', 'firstName lastName email')
-      .sort('-createdAt')
-      .lean();
+    const correctionRepo = getCorrectionRepository();
+    const corrections = await correctionRepo.listMyCorrections({
+      tenantId: req.user.tenantId,
+      employeeId: req.user.employeeId,
+      status: req.query.status,
+    });
 
     return res.json({ data: corrections });
   } catch (err) {
@@ -182,11 +187,11 @@ router.post('/me', async (req, res) => {
       return res.status(404).json({ error: 'No employee profile is linked to this account' });
     }
 
-    const employee = await Employee.findOne({
-      _id: req.user.employeeId,
+    const employeeRepo = getEmployeeRepository();
+    const employee = await employeeRepo.findActiveEmployeeById({
+      id: req.user.employeeId,
       tenantId: req.user.tenantId,
-      isActive: true,
-    }).select('_id branchId').lean();
+    });
 
     if (!employee) {
       return res.status(404).json({ error: 'Employee not found for current account' });
@@ -197,7 +202,8 @@ router.post('/me', async (req, res) => {
       return res.status(400).json({ error: 'targetDate is required' });
     }
 
-    const correction = await new AttendanceCorrectionRequest({
+    const correctionRepo = getCorrectionRepository();
+    const correction = await correctionRepo.createCorrection({
       ...req.body,
       employeeId: req.user.employeeId,
       tenantId: req.user.tenantId,
@@ -206,10 +212,10 @@ router.post('/me', async (req, res) => {
       reasonCode: inferReasonCode(req.body.reasonCode, req.body.reason),
       notes: req.body.notes || req.body.reason || '',
       after: normalizeAdjustment(req.body),
-      status: 'pending'
-    }).save();
-    logger.info(`Correction request created by self-service: ${correction._id}`);
-    return res.status(201).json({ data: correction.toObject() });
+      status: 'pending',
+    });
+    logger.info(`Correction request created by self-service: ${correction._id || correction.id}`);
+    return res.status(201).json({ data: correction });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
@@ -218,22 +224,14 @@ router.post('/me', async (req, res) => {
 // GET /api/corrections?status=pending&employeeId=xxx
 router.get('/', authorize(...REVIEWER_ROLES, 'auditor'), async (req, res) => {
   try {
-    const filter = { tenantId: req.user.tenantId };
-    if (req.query.status)     filter.status     = req.query.status;
-    if (req.query.employeeId) filter.employeeId = req.query.employeeId;
-
     const scopedEmployeeIds = await getScopedEmployeeIds(req);
-    if (scopedEmployeeIds) {
-      filter.employeeId = filter.employeeId
-        ? { $in: scopedEmployeeIds.filter((id) => String(id) === String(req.query.employeeId)) }
-        : { $in: scopedEmployeeIds };
-    }
-
-    const corrections = await AttendanceCorrectionRequest.find(filter)
-      .populate('employeeId',  'firstName lastName employeeCode')
-      .populate('requestedBy', 'firstName lastName email')
-      .populate('reviewedBy',  'firstName lastName email')
-      .sort('-createdAt').lean();
+    const correctionRepo = getCorrectionRepository();
+    const corrections = await correctionRepo.listCorrections({
+      tenantId: req.user.tenantId,
+      status: req.query.status,
+      employeeId: req.query.employeeId,
+      scopedEmployeeIds,
+    });
     return res.json({ data: corrections });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -243,11 +241,11 @@ router.get('/', authorize(...REVIEWER_ROLES, 'auditor'), async (req, res) => {
 // POST /api/corrections — submit a correction request
 router.post('/', authorize(...REVIEWER_ROLES), async (req, res) => {
   try {
-    const employee = await Employee.findOne({
-      _id: req.body.employeeId,
+    const employeeRepo = getEmployeeRepository();
+    const employee = await employeeRepo.findActiveEmployeeById({
+      id: req.body.employeeId,
       tenantId: req.user.tenantId,
-      isActive: true,
-    }).select('_id branchId').lean();
+    });
 
     if (!employee) {
       return res.status(404).json({ error: 'Employee not found for current tenant' });
@@ -262,7 +260,8 @@ router.post('/', authorize(...REVIEWER_ROLES), async (req, res) => {
       return res.status(400).json({ error: 'targetDate is required' });
     }
 
-    const correction = await new AttendanceCorrectionRequest({
+    const correctionRepo = getCorrectionRepository();
+    const correction = await correctionRepo.createCorrection({
       ...req.body,
       tenantId:    req.user.tenantId,
       requestedBy: req.user.sub,
@@ -270,10 +269,10 @@ router.post('/', authorize(...REVIEWER_ROLES), async (req, res) => {
       reasonCode: inferReasonCode(req.body.reasonCode, req.body.reason),
       notes: req.body.notes || req.body.reason || '',
       after: normalizeAdjustment(req.body),
-      status:      'pending'
-    }).save();
-    logger.info(`Correction request created: ${correction._id}`);
-    return res.status(201).json({ data: correction.toObject() });
+      status:      'pending',
+    });
+    logger.info(`Correction request created: ${correction._id || correction.id}`);
+    return res.status(201).json({ data: correction });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
@@ -290,11 +289,11 @@ router.patch(
       }
 
       const scopedEmployeeIds = await getScopedEmployeeIds(req);
-      const correction = await AttendanceCorrectionRequest.findOne({
-        _id: req.params.id,
+      const correctionRepo = getCorrectionRepository();
+      const correction = await correctionRepo.findPendingCorrection({
+        id: req.params.id,
         tenantId: req.user.tenantId,
-        status: 'pending',
-        ...(scopedEmployeeIds ? { employeeId: { $in: scopedEmployeeIds } } : {}),
+        scopedEmployeeIds,
       });
       if (!correction) return res.status(404).json({ error: 'Not found or already reviewed' });
 
@@ -314,12 +313,7 @@ router.patch(
         };
       }
 
-      await correction.save();
-      const populated = await AttendanceCorrectionRequest.findById(correction._id)
-        .populate('employeeId', 'firstName lastName employeeCode')
-        .populate('requestedBy', 'firstName lastName email')
-        .populate('reviewedBy', 'firstName lastName email')
-        .lean();
+      const populated = await correctionRepo.saveCorrection(correction);
 
       logger.info(`Correction ${req.params.id} approved by ${req.user.email}`);
       return res.json({ data: populated });
@@ -340,23 +334,16 @@ router.patch(
       }
 
       const scopedEmployeeIds = await getScopedEmployeeIds(req);
-      const correction = await AttendanceCorrectionRequest.findOneAndUpdate(
-        {
-          _id: req.params.id,
-          tenantId: req.user.tenantId,
-          status: 'pending',
-          ...(scopedEmployeeIds ? { employeeId: { $in: scopedEmployeeIds } } : {}),
-        },
-        { status: 'rejected', reviewedBy: req.user.sub, reviewedAt: new Date(), reviewNotes: req.body.notes },
-        { new: true }
-      )
+      const correctionRepo = getCorrectionRepository();
+      const correction = await correctionRepo.rejectCorrection({
+        id: req.params.id,
+        tenantId: req.user.tenantId,
+        scopedEmployeeIds,
+        reviewerId: req.user.sub,
+        notes: req.body.notes,
+      });
       if (!correction) return res.status(404).json({ error: 'Not found or already reviewed' });
-      const populated = await AttendanceCorrectionRequest.findById(correction._id)
-        .populate('employeeId', 'firstName lastName employeeCode')
-        .populate('requestedBy', 'firstName lastName email')
-        .populate('reviewedBy', 'firstName lastName email')
-        .lean();
-      return res.json({ data: populated });
+      return res.json({ data: correction });
     } catch (err) {
       return res.status(500).json({ error: err.message });
     }

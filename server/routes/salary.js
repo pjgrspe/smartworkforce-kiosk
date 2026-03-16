@@ -1,15 +1,7 @@
 const express         = require('express');
 const router          = express.Router();
-const SalaryStructure = require('../models/SalaryStructure');
-const Employee        = require('../models/Employee');
 const { authenticate, authorize } = require('../middleware/auth');
-
-async function ensureEmployeeBelongsToTenant(employeeId, tenantId) {
-  const employee = await Employee.findOne({ _id: employeeId, tenantId, isActive: true }).select('_id').lean();
-  if (!employee) {
-    throw new Error('Employee not found for current tenant');
-  }
-}
+const { getSalaryRepository } = require('../repositories/salary');
 
 function normalizeSalaryPayload(payload) {
   const next = { ...payload };
@@ -30,10 +22,8 @@ router.use(authenticate);
 // GET /api/salary — active/current salary structures for current tenant
 router.get('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    const records = await SalaryStructure.find({ tenantId: req.user.tenantId, isActive: true })
-      .populate('employeeId', 'firstName lastName employeeCode branchId employment.position')
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .lean();
+    const repo = getSalaryRepository();
+    const records = await repo.listActiveSalaryStructures({ user: req.user });
     return res.json({ data: records });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -43,10 +33,8 @@ router.get('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (r
 // GET /api/salary/:employeeId — salary history for one employee
 router.get('/:employeeId', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    await ensureEmployeeBelongsToTenant(req.params.employeeId, req.user.tenantId);
-
-    const records = await SalaryStructure.find({ employeeId: req.params.employeeId, tenantId: req.user.tenantId })
-      .sort('-effectiveDate').lean();
+    const repo = getSalaryRepository();
+    const records = await repo.getSalaryHistory({ user: req.user, employeeId: req.params.employeeId });
     return res.json({ data: records });
   } catch (err) {
     return res.status(err.message === 'Employee not found for current tenant' ? 404 : 500).json({ error: err.message });
@@ -57,18 +45,9 @@ router.get('/:employeeId', authorize('super_admin', 'client_admin', 'hr_payroll'
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
     const payload = normalizeSalaryPayload(req.body);
-    await ensureEmployeeBelongsToTenant(payload.employeeId, req.user.tenantId);
-
-    // Deactivate any existing active structure for this employee
-    await SalaryStructure.updateMany(
-      { employeeId: payload.employeeId, tenantId: req.user.tenantId, isActive: true },
-      { isActive: false }
-    );
-    const salary = await new SalaryStructure({
-      ...payload,
-      tenantId: req.user.tenantId
-    }).save();
-    return res.status(201).json({ data: salary.toObject() });
+    const repo = getSalaryRepository();
+    const salary = await repo.createSalaryStructure({ user: req.user, payload });
+    return res.status(201).json({ data: salary });
   } catch (err) {
     return res.status(err.message === 'Employee not found for current tenant' ? 404 : 400).json({ error: err.message });
   }
@@ -78,15 +57,8 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
     const patch = normalizeSalaryPayload(req.body);
-    if (patch.employeeId) {
-      await ensureEmployeeBelongsToTenant(patch.employeeId, req.user.tenantId);
-    }
-
-    const salary = await SalaryStructure.findOneAndUpdate(
-      { _id: req.params.id, tenantId: req.user.tenantId },
-      { $set: patch },
-      { new: true, runValidators: true }
-    ).lean();
+    const repo = getSalaryRepository();
+    const salary = await repo.updateSalaryStructure({ user: req.user, id: req.params.id, patch });
     if (!salary) return res.status(404).json({ error: 'Not found' });
     return res.json({ data: salary });
   } catch (err) {

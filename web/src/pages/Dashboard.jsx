@@ -10,12 +10,194 @@ import { useAuth } from '../contexts/AuthContext'
 import {
   getEmployees, getAttendance, getCorrections, getPayrollRuns,
   getMyEmployeeProfile, getMyAttendance, getMyCorrections, createMyCorrection, getMyPayslips,
+  getHealth, getSyncStatus,
 } from '../config/api'
 import { fmtDate, fmtTime, fmtDateRange, fmtPeso, fmtPesoShort, employeeName } from '../lib/format'
 import Badge from '../components/ui/Badge'
 import Button from '../components/ui/Button'
 import { Input, Textarea } from '../components/ui/Input'
 import Spinner from '../components/ui/Spinner'
+
+function formatRelativeTime(value) {
+  if (!value) return 'No recent check yet'
+
+  const time = new Date(value)
+  if (Number.isNaN(time.getTime())) return 'No recent check yet'
+
+  const diffMs = Date.now() - time.getTime()
+  const diffMinutes = Math.max(0, Math.floor(diffMs / 60000))
+  if (diffMinutes < 1) return 'Updated just now'
+  if (diffMinutes === 1) return 'Updated 1 minute ago'
+  if (diffMinutes < 60) return `Updated ${diffMinutes} minutes ago`
+
+  const diffHours = Math.floor(diffMinutes / 60)
+  if (diffHours === 1) return 'Updated 1 hour ago'
+  if (diffHours < 24) return `Updated ${diffHours} hours ago`
+
+  return `Updated ${fmtDate(time)} ${fmtTime(time)}`
+}
+
+function statusTone(value, goodValues = []) {
+  return goodValues.includes(value) ? 'success' : 'warning'
+}
+
+function StatusMetric({ label, value, hint, tone = 'neutral' }) {
+  const valueClass = {
+    success: 'text-signal-success',
+    warning: 'text-signal-warning',
+    danger: 'text-signal-danger',
+    info: 'text-accent-400',
+    neutral: 'text-navy-50',
+  }[tone] || 'text-navy-50'
+
+  return (
+    <div className="rounded-lg border border-navy-500/50 bg-navy-800/70 px-3 py-3">
+      <p className="label-caps mb-1">{label}</p>
+      <p className={`text-base font-semibold uppercase tracking-wide ${valueClass}`}>{value}</p>
+      <p className="mt-1 text-2xs text-navy-300">{hint}</p>
+    </div>
+  )
+}
+
+function SyncObservabilityPanel({ branchId }) {
+  const [status, setStatus] = useState(null)
+  const [health, setHealth] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [refreshTick, setRefreshTick] = useState(0)
+
+  useEffect(() => {
+    let active = true
+
+    const loadStatus = async (isInitialLoad = false) => {
+      if (isInitialLoad) setLoading(true)
+
+      try {
+        const [healthRes, syncRes] = await Promise.all([
+          getHealth(),
+          getSyncStatus(branchId ? { branchId } : {}),
+        ])
+
+        if (!active) return
+
+        setHealth(healthRes)
+        setStatus(syncRes)
+        setError('')
+      } catch (err) {
+        if (!active) return
+        setError(err.message || 'Unable to load platform status')
+      } finally {
+        if (active && isInitialLoad) setLoading(false)
+      }
+    }
+
+    loadStatus(true)
+    const timer = window.setInterval(() => loadStatus(false), 15000)
+
+    return () => {
+      active = false
+      window.clearInterval(timer)
+    }
+  }, [branchId, refreshTick])
+
+  const metrics = status?.metrics || {}
+  const provider = health?.provider || status?.provider || 'unknown'
+  const mode = health?.mode || status?.mode || 'unknown'
+  const outboxPending = Number(metrics.outbox_pending || 0)
+  const inboundFailures = Number(metrics.inbound_failures || 0)
+  const deadLetter = Number(metrics.dead_letter || 0)
+  const maxEventSeq = Number(metrics.max_event_seq || 0)
+
+  return (
+    <Panel title="Platform Status">
+      <div className="px-4 py-4 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-navy-100">Central runtime health</p>
+            <p className="mt-1 text-2xs text-navy-300">{formatRelativeTime(health?.ts)}</p>
+          </div>
+          <Button size="xs" variant="outline" onClick={() => setRefreshTick((current) => current + 1)}>
+            Refresh
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center gap-2 rounded-lg border border-navy-500/40 bg-navy-800/60 px-3 py-3 text-2xs text-navy-300">
+            <Spinner size="sm" />
+            Loading sync telemetry...
+          </div>
+        ) : error ? (
+          <div className="rounded-lg border border-signal-danger/25 bg-signal-danger/8 px-3 py-3 text-2xs text-signal-danger">
+            {error}
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <StatusMetric
+                label="Provider"
+                value={provider}
+                hint="Active persistence layer"
+                tone={statusTone(provider, ['postgres'])}
+              />
+              <StatusMetric
+                label="Runtime"
+                value={mode}
+                hint="Deployment topology"
+                tone={statusTone(mode, ['CENTRAL', 'BRANCH'])}
+              />
+              <StatusMetric
+                label="Outbox Pending"
+                value={String(outboxPending)}
+                hint="Branch queue waiting to send"
+                tone={outboxPending > 0 ? 'warning' : 'success'}
+              />
+              <StatusMetric
+                label="Inbound Failures"
+                value={String(inboundFailures)}
+                hint="Retries currently tracked"
+                tone={inboundFailures > 0 ? 'warning' : 'success'}
+              />
+              <StatusMetric
+                label="Dead Letter"
+                value={String(deadLetter)}
+                hint="Events needing manual review"
+                tone={deadLetter > 0 ? 'danger' : 'success'}
+              />
+              <StatusMetric
+                label="Event Feed"
+                value={String(maxEventSeq)}
+                hint="Latest central sync sequence"
+                tone="info"
+              />
+            </div>
+
+            {Array.isArray(status?.checkpoints) && status.checkpoints.length > 0 && (
+              <div className="rounded-lg border border-navy-500/40 bg-navy-800/40 overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 border-b border-navy-500/30">
+                  <p className="label-caps">Branch Checkpoints</p>
+                  <Badge variant="info">{status.checkpoints.length}</Badge>
+                </div>
+                <div className="divide-y divide-navy-500/25">
+                  {status.checkpoints.map((checkpoint) => (
+                    <div key={checkpoint.cursor_name} className="px-3 py-2.5 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-2xs font-semibold uppercase tracking-wide text-navy-100">
+                          {checkpoint.cursor_name.replace(/_/g, ' ')}
+                        </p>
+                        <p className="mt-1 text-2xs text-navy-300">{formatRelativeTime(checkpoint.updated_at)}</p>
+                      </div>
+                      <p className="max-w-[45%] truncate text-2xs text-navy-200">{checkpoint.cursor_value || 'None'}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </Panel>
+  )
+}
 
 // KPI tile
 function KPI({ label, value, sub, accent, href }) {
@@ -473,6 +655,8 @@ export default function Dashboard() {
                 ))}
               </div>
             </Panel>
+
+            <SyncObservabilityPanel branchId={user?.branchId || ''} />
 
           </div>
         </div>

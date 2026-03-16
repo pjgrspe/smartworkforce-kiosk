@@ -4,7 +4,7 @@
 
 const jwt = require('jsonwebtoken');
 const logger = require('../utils/logger');
-const User = require('../models/User');
+const { getUserRepository } = require('../repositories/user');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_production';
 
@@ -12,9 +12,10 @@ const JWT_SECRET = process.env.JWT_SECRET || 'change_me_in_production';
  * Sign a JWT for a user document.
  */
 function signToken(user) {
+  const userId = user._id ? user._id.toString() : String(user.id);
   return jwt.sign(
     {
-      sub:      user._id.toString(),
+      sub:      userId,
       email:    user.email,
       firstName: user.firstName || null,
       lastName: user.lastName || null,
@@ -41,7 +42,8 @@ async function authenticate(req, res, next) {
   try {
     const payload = jwt.verify(token, JWT_SECRET);
     if (!payload.tenantId || payload.employeeId === undefined || !payload.firstName) {
-      const user = await User.findById(payload.sub).select('tenantId branchId role employeeId firstName lastName').lean();
+      const userRepo = getUserRepository();
+      const user = await userRepo.findById(payload.sub);
       if (user) {
         payload.tenantId = user.tenantId ? user.tenantId.toString() : payload.tenantId;
         payload.branchId = user.branchId ? user.branchId.toString() : payload.branchId;
