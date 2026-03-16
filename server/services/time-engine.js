@@ -4,11 +4,6 @@
  * per employee per calendar day within a cutoff period.
  */
 
-const AttendanceLog = require('../models/AttendanceLog');
-const Schedule      = require('../models/Schedule');
-const Employee      = require('../models/Employee');
-const Holiday       = require('../models/Holiday');
-const { getDatabaseProvider } = require('../config/database');
 const { getPool } = require('../config/postgres');
 
 /** Parse "HH:mm" string → minutes from midnight */
@@ -71,112 +66,86 @@ function calcNightDiffMinutes(actualInMin, actualOutMin, ndStart, ndEnd) {
  * @param {object}  tenantSettings  – from Tenant.settings
  */
 async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSettings = {}) {
-  const provider = getDatabaseProvider();
+  const pool = getPool();
+  const employeeRes = await pool.query(
+    `
+      SELECT id, tenant_id, employee_code, first_name, last_name, schedule_id
+      FROM employees
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [employeeId],
+  );
 
-  let employee = null;
-  let logs = [];
-  let holidays = [];
+  if (!employeeRes.rowCount) throw new Error(`Employee ${employeeId} not found`);
+  const employeeRow = employeeRes.rows[0];
+  const employee = {
+    _id: employeeRow.id,
+    tenantId: employeeRow.tenant_id,
+    employeeCode: employeeRow.employee_code,
+    firstName: employeeRow.first_name,
+    lastName: employeeRow.last_name,
+    scheduleId: employeeRow.schedule_id,
+  };
+
+  const endBuffer = new Date(new Date(cutoffEnd).getTime() + 86_400_000);
+  const logRes = await pool.query(
+    `
+      SELECT timestamp, type
+      FROM attendance_logs
+      WHERE employee_id = $1
+        AND timestamp >= $2
+        AND timestamp <= $3
+      ORDER BY timestamp ASC
+    `,
+    [employeeId, new Date(cutoffStart), endBuffer],
+  );
+  const logs = logRes.rows;
+
+  const holidayRes = await pool.query(
+    `
+      SELECT date, type
+      FROM holidays
+      WHERE tenant_id = $1
+        AND date >= $2
+        AND date <= $3
+    `,
+    [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd)],
+  );
+  const holidays = holidayRes.rows;
+
   let schedule = null;
-
-  if (provider === 'postgres') {
-    const pool = getPool();
-    const employeeRes = await pool.query(
+  if (employee.scheduleId) {
+    const scheduleRes = await pool.query(
       `
-        SELECT id, tenant_id, employee_code, first_name, last_name, schedule_id
-        FROM employees
+        SELECT
+          id,
+          shift_start,
+          shift_end,
+          break_duration_minutes,
+          is_paid_break,
+          grace_period_minutes,
+          rounding_rule_minutes,
+          rest_days
+        FROM schedules
         WHERE id = $1
         LIMIT 1
       `,
-      [employeeId],
+      [employee.scheduleId],
     );
 
-    if (!employeeRes.rowCount) throw new Error(`Employee ${employeeId} not found`);
-    const employeeRow = employeeRes.rows[0];
-    employee = {
-      _id: employeeRow.id,
-      tenantId: employeeRow.tenant_id,
-      employeeCode: employeeRow.employee_code,
-      firstName: employeeRow.first_name,
-      lastName: employeeRow.last_name,
-      scheduleId: employeeRow.schedule_id,
-    };
-
-    const endBuffer = new Date(new Date(cutoffEnd).getTime() + 86_400_000);
-    const logRes = await pool.query(
-      `
-        SELECT timestamp, type
-        FROM attendance_logs
-        WHERE employee_id = $1
-          AND timestamp >= $2
-          AND timestamp <= $3
-        ORDER BY timestamp ASC
-      `,
-      [employeeId, new Date(cutoffStart), endBuffer],
-    );
-    logs = logRes.rows;
-
-    const holidayRes = await pool.query(
-      `
-        SELECT date, type
-        FROM holidays
-        WHERE tenant_id = $1
-          AND date >= $2
-          AND date <= $3
-      `,
-      [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd)],
-    );
-    holidays = holidayRes.rows;
-
-    if (employee.scheduleId) {
-      const scheduleRes = await pool.query(
-        `
-          SELECT
-            id,
-            shift_start,
-            shift_end,
-            break_duration_minutes,
-            is_paid_break,
-            grace_period_minutes,
-            rounding_rule_minutes,
-            rest_days
-          FROM schedules
-          WHERE id = $1
-          LIMIT 1
-        `,
-        [employee.scheduleId],
-      );
-
-      if (scheduleRes.rowCount) {
-        const row = scheduleRes.rows[0];
-        schedule = {
-          _id: row.id,
-          shiftStart: row.shift_start,
-          shiftEnd: row.shift_end,
-          breakDurationMinutes: row.break_duration_minutes,
-          isPaidBreak: row.is_paid_break,
-          gracePeriodMinutes: row.grace_period_minutes,
-          roundingRuleMinutes: row.rounding_rule_minutes,
-          restDays: Array.isArray(row.rest_days) ? row.rest_days : [],
-        };
-      }
-    }
-  } else {
-    employee = await Employee.findById(employeeId).lean();
-    if (!employee) throw new Error(`Employee ${employeeId} not found`);
-
-    const endBuffer = new Date(new Date(cutoffEnd).getTime() + 86_400_000);
-    logs = await AttendanceLog.find({
-      employeeId,
-      timestamp: { $gte: new Date(cutoffStart), $lte: endBuffer }
-    }).sort('timestamp').lean();
-
-    holidays = await Holiday.find({
-      tenantId: employee.tenantId,
-      date: { $gte: new Date(cutoffStart), $lte: new Date(cutoffEnd) }
-    }).lean();
-
-    if (employee.scheduleId) {
-      schedule = await Schedule.findById(employee.scheduleId).lean();
+    if (scheduleRes.rowCount) {
+      const row = scheduleRes.rows[0];
+      schedule = {
+        _id: row.id,
+        shiftStart: row.shift_start,
+        shiftEnd: row.shift_end,
+        breakDurationMinutes: row.break_duration_minutes,
+        isPaidBreak: row.is_paid_break,
+        gracePeriodMinutes: row.grace_period_minutes,
+        roundingRuleMinutes: row.rounding_rule_minutes,
+        restDays: Array.isArray(row.rest_days) ? row.rest_days : [],
+      };
     }
   }
 

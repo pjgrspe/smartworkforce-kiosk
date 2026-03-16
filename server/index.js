@@ -2,7 +2,6 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 
 const express      = require('express');
 const cors         = require('cors');
-const mongoose     = require('mongoose');
 const logger       = require('./utils/logger');
 const { connectDatabase, getDatabaseProvider } = require('./config/database');
 const { getRuntimeMode } = require('./config/runtime');
@@ -88,14 +87,6 @@ connectDatabase()
     logger.error('Failed to connect to database:', err);
     process.exit(1);
   });
-
-// Also flush when mongoose reconnects after a dropped connection
-if (getDatabaseProvider() === 'mongo') {
-  mongoose.connection.on('reconnected', () => {
-    logger.info('MongoDB reconnected - flushing offline buffer...');
-    flushOfflineBuffer();
-  });
-}
 
 process.on('uncaughtException',  err => { logger.error('Uncaught exception:',  err); process.exit(1); });
 process.on('unhandledRejection', err => { logger.error('Unhandled rejection:', err); process.exit(1); });

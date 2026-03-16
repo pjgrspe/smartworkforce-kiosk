@@ -1,7 +1,6 @@
 const logger = require('../utils/logger');
 const { getPool } = require('../config/postgres');
 const { getRuntimeMode } = require('../config/runtime');
-const { getDatabaseProvider } = require('../config/database');
 const { applySyncEvent } = require('./sync-apply');
 
 let timer = null;
@@ -10,7 +9,7 @@ const CURSOR_NAME = 'outbox_last_sent_id';
 const INBOUND_CURSOR_NAME = 'inbound_last_seq';
 
 function isEnabled() {
-  return getRuntimeMode() === 'BRANCH' && getDatabaseProvider() === 'postgres';
+  return getRuntimeMode() === 'BRANCH';
 }
 
 async function fetchPendingOutbox(limit = 50) {

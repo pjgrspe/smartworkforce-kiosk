@@ -26,7 +26,6 @@
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.2.1",
     "multer": "^2.1.1",
     "pg": "^8.13.3",
     "uuid": "^9.0.1",
@@ -43,7 +42,6 @@
   "keywords": [
     "websocket",
     "offline-first",
-    "mongodb",
     "postgresql",
     "facial-recognition"
   ],

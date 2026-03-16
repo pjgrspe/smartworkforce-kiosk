@@ -1,9 +1,9 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { getDatabaseProvider } = require('../config/database');
 const { getRuntimeMode } = require('../config/runtime');
 const { getPool } = require('../config/postgres');
 const { applySyncEvent } = require('../services/sync-apply');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -19,17 +19,11 @@ function requireSyncSecret(req, res, next) {
   return next();
 }
 
-function ensurePostgres(req, res, next) {
-  if (getDatabaseProvider() !== 'postgres') {
-    return res.status(501).json({ error: 'Sync endpoints require postgres provider' });
-  }
-  return next();
-}
+// /sync/status is called from the admin dashboard via JWT — no sync secret needed.
+// The sync event endpoints are called by branch sync daemons that send the shared secret.
+const syncEventMiddleware = [requireSyncSecret];
 
-router.use(requireSyncSecret);
-router.use(ensurePostgres);
-
-router.post('/events', async (req, res) => {
+router.post('/events', syncEventMiddleware, async (req, res) => {
   try {
     const idempotencyKey = String(req.headers['x-idempotency-key'] || req.body.idempotencyKey || uuidv4());
     const sourceBranchId = req.body.branchId || null;
@@ -96,7 +90,7 @@ router.post('/events', async (req, res) => {
   }
 });
 
-router.get('/events/pull', async (req, res) => {
+router.get('/events/pull', syncEventMiddleware, async (req, res) => {
   try {
     const branchId = req.query.branchId ? String(req.query.branchId) : null;
     if (!branchId) return res.status(400).json({ error: 'branchId is required' });
@@ -137,7 +131,7 @@ router.get('/events/pull', async (req, res) => {
   }
 });
 
-router.get('/status', async (req, res) => {
+router.get('/status', authenticate, async (req, res) => {
   try {
     const branchId = req.query.branchId ? String(req.query.branchId) : null;
     const pool = getPool();
@@ -169,7 +163,7 @@ router.get('/status', async (req, res) => {
 
     return res.json({
       mode: getRuntimeMode(),
-      provider: getDatabaseProvider(),
+      provider: 'postgres',
       metrics: baseMetrics.rows[0],
       checkpoints,
     });

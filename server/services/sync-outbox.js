@@ -1,10 +1,9 @@
 const { v4: uuidv4 } = require('uuid');
 const { getRuntimeMode } = require('../config/runtime');
-const { getDatabaseProvider } = require('../config/database');
 const { getPool } = require('../config/postgres');
 
-function isBranchPostgresMode() {
-  return getRuntimeMode() === 'BRANCH' && getDatabaseProvider() === 'postgres';
+function isBranchMode() {
+  return getRuntimeMode() === 'BRANCH';
 }
 
 async function enqueueOutboxEvent({
@@ -15,7 +14,7 @@ async function enqueueOutboxEvent({
   payload,
   idempotencyKey,
 }) {
-  if (!isBranchPostgresMode()) return null;
+  if (!isBranchMode()) return null;
   if (!branchId) return null;
 
   const pool = getPool();
@@ -42,5 +41,5 @@ async function enqueueOutboxEvent({
 
 module.exports = {
   enqueueOutboxEvent,
-  isBranchPostgresMode,
+  isBranchPostgresMode: isBranchMode,
 };

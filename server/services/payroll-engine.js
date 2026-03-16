@@ -7,8 +7,6 @@
  * PH rates used: 2024 schedule.
  */
 
-const SalaryStructure = require('../models/SalaryStructure');
-const { getDatabaseProvider } = require('../config/database');
 const { getPool } = require('../config/postgres');
 
 // ── Statutory contribution helpers ────────────────────────────────
@@ -94,34 +92,30 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
 
   // Fetch active salary structure
   let salaryStruct = null;
-  if (getDatabaseProvider() === 'postgres') {
-    const pool = getPool();
-    const { rows } = await pool.query(
-      `
-        SELECT *
-        FROM salary_structures
-        WHERE employee_id = $1
-          AND is_active = TRUE
-        ORDER BY effective_date DESC, created_at DESC
-        LIMIT 1
-      `,
-      [employeeId],
-    );
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      SELECT *
+      FROM salary_structures
+      WHERE employee_id = $1
+        AND is_active = TRUE
+      ORDER BY effective_date DESC, created_at DESC
+      LIMIT 1
+    `,
+    [employeeId],
+  );
 
-    if (rows[0]) {
-      const row = rows[0];
-      salaryStruct = {
-        basicRate: row.basic_rate == null ? 0 : Number(row.basic_rate),
-        salaryType: row.salary_type,
-        paymentFrequency: row.payment_frequency,
-        allowances: row.allowances || [],
-        additionalDeductions: row.additional_deductions || [],
-        overtimeEligible: row.overtime_eligible,
-        nightDiffEligible: row.night_diff_eligible,
-      };
-    }
-  } else {
-    salaryStruct = await SalaryStructure.findOne({ employeeId, isActive: true }).lean();
+  if (rows[0]) {
+    const row = rows[0];
+    salaryStruct = {
+      basicRate: row.basic_rate == null ? 0 : Number(row.basic_rate),
+      salaryType: row.salary_type,
+      paymentFrequency: row.payment_frequency,
+      allowances: row.allowances || [],
+      additionalDeductions: row.additional_deductions || [],
+      overtimeEligible: row.overtime_eligible,
+      nightDiffEligible: row.night_diff_eligible,
+    };
   }
 
   if (!salaryStruct) {
