@@ -181,6 +181,8 @@ function NewCorrectionModal({
   })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
+  const [empSearch, setEmpSearch] = useState('')
+  const [empOpen, setEmpOpen] = useState(false)
   const [dateLogs, setDateLogs] = useState([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logsError, setLogsError] = useState('')
@@ -346,13 +348,39 @@ function NewCorrectionModal({
                         border border-signal-danger/25 rounded-md">{error}</p>
         )}
         {canSelectEmployee ? (
-          <Select label="Employee *" value={form.employeeId}
-            onChange={e => setForm(p => ({ ...p, employeeId: e.target.value }))}>
-            <option value="">Select employee…</option>
-            {employees.map(e => (
-              <option key={e._id} value={e._id}>{e.firstName} {e.lastName}</option>
-            ))}
-          </Select>
+          <div className="relative">
+            <label className="label-caps mb-1 block">Employee *</label>
+            <input
+              className="input w-full"
+              placeholder="Search employee…"
+              value={empSearch}
+              onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(p => ({ ...p, employeeId: '' })) }}
+              onFocus={() => setEmpOpen(true)}
+              onBlur={() => setTimeout(() => setEmpOpen(false), 150)}
+            />
+            {empOpen && (
+              <ul className="absolute z-50 w-full mt-1 bg-navy-700 border border-navy-500 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                {employees
+                  .filter(e => `${e.firstName} ${e.lastName}`.toLowerCase().includes(empSearch.toLowerCase()))
+                  .map(e => (
+                    <li
+                      key={e._id}
+                      className="px-3 py-2 text-sm text-navy-100 hover:bg-navy-600 cursor-pointer"
+                      onMouseDown={() => {
+                        setForm(p => ({ ...p, employeeId: e._id }))
+                        setEmpSearch(`${e.firstName} ${e.lastName}`)
+                        setEmpOpen(false)
+                      }}
+                    >
+                      {e.firstName} {e.lastName}
+                    </li>
+                  ))}
+                {employees.filter(e => `${e.firstName} ${e.lastName}`.toLowerCase().includes(empSearch.toLowerCase())).length === 0 && (
+                  <li className="px-3 py-2 text-sm text-navy-400">No employees found</li>
+                )}
+              </ul>
+            )}
+          </div>
         ) : (
           <Input label="Employee" value="Current logged-in employee" disabled />
         )}

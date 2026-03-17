@@ -78,16 +78,6 @@ function Blueprint() {
   )
 }
 
-// Stat strip item
-function Stat({ value, label }) {
-  return (
-    <div>
-      <p className="text-xl font-bold text-brand-green tabular">{value}</p>
-      <p className="text-xs text-navy-400 uppercase tracking-[0.15em] mt-0.5">{label}</p>
-    </div>
-  )
-}
-
 // Main component
 export default function Login() {
   const { signIn }   = useAuth()
@@ -139,34 +129,26 @@ export default function Login() {
               <span className="text-xs text-navy-400 font-mono">v2.0</span>
             </div>
             <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-2 font-medium">
-              HR &amp; Payroll Platform
+              SmartWorkforce
             </p>
           </div>
 
           {/* Hero copy */}
           <div className="mt-auto">
             <h1 className="text-[48px] font-thin text-navy-50 leading-[1.1] tracking-tighter">
-              Precision<br />
-              <span className="font-bold text-brand-green">Workforce</span><br />
-              Management
+              DE Webnet<br />
+              <span className="font-bold text-brand-green">SmartWorkforce</span>
             </h1>
             <p className="mt-5 text-sm text-navy-200 max-w-[360px] leading-relaxed font-light">
-              Enterprise-grade attendance tracking, dynamic scheduling, and automated
-              payroll computation - powered by facial recognition.
+              AI-Powered Facial Recognition Attendance, Payroll Automation, and Workforce Management Platform.
             </p>
 
-            {/* Metrics strip */}
-            <div className="mt-10 flex items-start gap-10 border-t border-navy-500/30 pt-6">
-              <Stat value="99.4%" label="Recognition Accuracy" />
-              <Stat value="~0.3s" label="Avg. Process Time" />
-              <Stat value="Offline" label="Edge Resilience" />
-            </div>
           </div>
 
           {/* Footer classification */}
           <div className="mt-10 flex items-center justify-between text-xs text-navy-500
                           uppercase tracking-[0.11em] border-t border-navy-500/20 pt-4">
-            <span>DE WEBNET Systems (c) 2026</span>
+            <span>DE Webnet SmartWorkforce (c) 2026</span>
             <span className="font-mono">REV 2.0.0 // PH-REGION</span>
           </div>
         </div>
@@ -178,7 +160,7 @@ export default function Login() {
         {/* Mobile wordmark */}
         <div className="lg:hidden mb-10 flex flex-col items-center gap-1">
           <img src={logo} alt="DE WEBNET" className="h-9 w-auto" />
-          <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1">HR &amp; Payroll</p>
+          <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1">SmartWorkforce</p>
         </div>
 
         <div className="w-full max-w-[320px]">
@@ -234,7 +216,7 @@ export default function Login() {
           </form>
 
           <p className="mt-10 text-center text-xs text-navy-500 uppercase tracking-[0.11em]">
-            DE WEBNET Platform // Secured Access
+            DE Webnet SmartWorkforce // Secured Access
           </p>
         </div>
       </div>
