@@ -351,7 +351,7 @@ function NewCorrectionModal({
           <div className="relative">
             <label className="label-caps mb-1 block">Employee *</label>
             <input
-              className="input w-full"
+              className="w-full h-9 px-3 text-sm bg-navy-600 border border-navy-500 text-navy-100 placeholder:text-navy-300/40 focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent/30 transition-colors duration-80 rounded-md focus:outline-none"
               placeholder="Search employee…"
               value={empSearch}
               onChange={e => { setEmpSearch(e.target.value); setEmpOpen(true); setForm(p => ({ ...p, employeeId: '' })) }}
