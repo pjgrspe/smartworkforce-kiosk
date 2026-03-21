@@ -13,6 +13,7 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 }
 
 $ErrorActionPreference = "Stop"
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $REPO_URL    = "https://github.com/pjgrspe/smartworkforce-kiosk.git"
 $INSTALL_DIR = "C:\SmartWorkforce"
