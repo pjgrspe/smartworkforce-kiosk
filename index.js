@@ -41,7 +41,7 @@ app.get('*', (_req, res) => {
 });
 
 // ── WebSocket server ──────────────────────────────────────────────────────────
-const wss = new WebSocketServer({ port: WS_PORT });
+const wss = new WebSocketServer({ port: WS_PORT, host: '127.0.0.1' });
 
 const clients = new Set();
 
@@ -75,7 +75,7 @@ sync.onStatusChange(msg => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`[kiosk-service] HTTP  → http://localhost:${PORT}`);
   console.log(`[kiosk-service] WS    → ws://localhost:${WS_PORT}`);
 });

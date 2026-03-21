@@ -11,6 +11,11 @@ const sync = require('../sync');
 
 const router = express.Router();
 
+// Rate limit: one punch per employee per 30 seconds
+const MIN_CONFIDENCE   = 0.5;
+const PUNCH_COOLDOWN_MS = 30_000;
+const lastPunchTime    = new Map(); // employeeId → timestamp (ms)
+
 const VALID_NEXT = {
   null:        ['IN'],
   'IN':        ['OUT', 'BREAK_IN'],
@@ -75,6 +80,20 @@ router.post('/punch', (req, res) => {
     return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
   }
 
+  // Reject if no face confidence or below threshold
+  if (confidenceScore == null || confidenceScore < MIN_CONFIDENCE) {
+    return res.status(403).json({ error: 'Face verification required' });
+  }
+
+  // Rate limit: prevent duplicate/spammed punches
+  const nowMs    = Date.now();
+  const lastTime = lastPunchTime.get(employeeId) ?? 0;
+  if (nowMs - lastTime < PUNCH_COOLDOWN_MS) {
+    const wait = Math.ceil((PUNCH_COOLDOWN_MS - (nowMs - lastTime)) / 1000);
+    return res.status(429).json({ error: `Please wait ${wait}s before punching again` });
+  }
+  lastPunchTime.set(employeeId, nowMs);
+
   const employee = db.getEmployeeById(employeeId);
   if (!employee) return res.status(404).json({ error: 'Employee not found in local cache' });
 
@@ -82,8 +101,8 @@ router.post('/punch', (req, res) => {
   const seqErr = punchSequenceError(lastPunch, type);
   if (seqErr) return res.status(409).json({ error: seqErr });
 
-  const now = new Date().toISOString();
   const id  = uuidv4();
+  const now = new Date().toISOString();
 
   // Always write to local queue first
   db.enqueuePunch({
