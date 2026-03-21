@@ -3,7 +3,12 @@
 
 # Self-elevate with admin rights + bypass execution policy
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs
+    try {
+        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs -ErrorAction Stop
+    } catch {
+        Write-Host "Could not launch as Administrator. Please right-click the file and select 'Run as administrator'." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+    }
     exit
 }
 
@@ -11,14 +16,15 @@ $ErrorActionPreference = "Stop"
 
 $REPO_URL    = "https://github.com/pjgrspe/smartworkforce-kiosk.git"
 $INSTALL_DIR = "C:\SmartWorkforce"
+$success     = $false
+
+try {
 
 Write-Host ""
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host "  SmartWorkforce Kiosk Installer" -ForegroundColor Cyan
 Write-Host "=====================================" -ForegroundColor Cyan
 Write-Host ""
-
-try {
 
 # -- 1. Check Node.js ----------------------------------------------------------
 Write-Host "Checking Node.js..." -ForegroundColor Yellow
@@ -32,16 +38,12 @@ if ($nodeMissing) {
     Write-Host "  Node.js LTS not found. Installing automatically..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install --id OpenJS.NodeJS.LTS -e --silent --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  winget install failed. Please install Node.js LTS from https://nodejs.org and re-run." -ForegroundColor Red
-            Read-Host "Press Enter to exit"; exit 1
-        }
+        if ($LASTEXITCODE -ne 0) { throw "winget failed to install Node.js. Please install Node.js LTS from https://nodejs.org and re-run." }
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
         $nodeVersion = node --version 2>$null
         Write-Host "  Node.js LTS installed: $nodeVersion" -ForegroundColor Green
     } else {
-        Write-Host "  winget not available. Please install Node.js LTS from https://nodejs.org and re-run." -ForegroundColor Red
-        Read-Host "Press Enter to exit"; exit 1
+        throw "winget not available. Please install Node.js LTS from https://nodejs.org and re-run."
     }
 } else {
     Write-Host "  Node.js found: $nodeVersion" -ForegroundColor Green
@@ -55,15 +57,11 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitVersion)) {
     Write-Host "  Git not found. Installing automatically..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  winget install failed. Please install Git from https://git-scm.com and re-run." -ForegroundColor Red
-            Read-Host "Press Enter to exit"; exit 1
-        }
+        if ($LASTEXITCODE -ne 0) { throw "winget failed to install Git. Please install Git from https://git-scm.com and re-run." }
         $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("PATH","User")
         Write-Host "  Git installed." -ForegroundColor Green
     } else {
-        Write-Host "  winget not available. Please install Git from https://git-scm.com and re-run." -ForegroundColor Red
-        Read-Host "Press Enter to exit"; exit 1
+        throw "winget not available. Please install Git from https://git-scm.com and re-run."
     }
 } else {
     Write-Host "  Git found: $gitVersion" -ForegroundColor Green
@@ -84,30 +82,24 @@ if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
     Write-Host "  Download complete." -ForegroundColor Green
 }
 
-# -- 4. Ask for config ---------------------------------------------------------
+# -- 4. Verify server + get tenant code ----------------------------------------
 Write-Host ""
 Write-Host "Configuration" -ForegroundColor Yellow
 Write-Host ""
 
-# 4a. Verify central server is reachable
 $centralUrl = "https://abg-hrd.dewebnetsolution.com"
 Write-Host "  Checking server connection..." -ForegroundColor DarkGray
 try {
     Invoke-WebRequest -Uri "$centralUrl/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null
     Write-Host "  Server reachable." -ForegroundColor Green
 } catch {
-    Write-Host "  Cannot reach the SmartWorkforce server. Make sure this PC has internet access and try again." -ForegroundColor Red
-    Read-Host "Press Enter to exit"; exit 1
+    throw "Cannot reach the SmartWorkforce server. Make sure this PC has internet access and try again."
 }
 
-# 4b. Tenant code — validate against server
 $tenantCode = ""
 while ([string]::IsNullOrWhiteSpace($tenantCode)) {
     $raw = Read-Host "  Tenant / company code (e.g. ABG)"
-    if ([string]::IsNullOrWhiteSpace($raw)) {
-        Write-Host "  Tenant code is required." -ForegroundColor Red
-        continue
-    }
+    if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "  Tenant code is required." -ForegroundColor Red; continue }
     $raw = $raw.ToUpper().Trim()
     Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
     try {
@@ -118,7 +110,7 @@ while ([string]::IsNullOrWhiteSpace($tenantCode)) {
     } catch {
         $status = $_.Exception.Response.StatusCode.Value__
         if ($status -eq 404) {
-            Write-Host "  Company code '$raw' not found. Please check the code and try again." -ForegroundColor Red
+            Write-Host "  Company code '$raw' not found. Please check and try again." -ForegroundColor Red
         } else {
             Write-Host "  Could not verify code. Server error — try again." -ForegroundColor Red
         }
@@ -162,17 +154,15 @@ pm2-startup install
 pm2 save
 Write-Host "  PM2 service installed. Kiosk will auto-start on boot." -ForegroundColor Green
 
-# -- 9. Create desktop shortcut (Chrome kiosk mode) ---------------------------
+# -- 9. Create desktop shortcut ------------------------------------------------
 Write-Host ""
 Write-Host "Creating desktop shortcut..." -ForegroundColor Yellow
-
 $chromePaths = @(
     "C:\Program Files\Google\Chrome\Application\chrome.exe",
     "C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
     "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
 )
 $chrome = $chromePaths | Where-Object { Test-Path $_ } | Select-Object -First 1
-
 if ($chrome) {
     try {
         $desktop  = [Environment]::GetFolderPath("Desktop")
@@ -186,12 +176,11 @@ if ($chrome) {
         $lnk.Save()
         Write-Host "  Shortcut created on desktop: SmartWorkforce Kiosk" -ForegroundColor Green
     } catch {
-        Write-Host "  Could not create shortcut automatically ($_)" -ForegroundColor DarkYellow
-        Write-Host "  Manually create a Chrome shortcut pointing to:" -ForegroundColor DarkGray
-        Write-Host "  `"$chrome`" --kiosk http://localhost:4000/kiosk --no-first-run --disable-infobars" -ForegroundColor DarkGray
+        Write-Host "  Could not create shortcut ($_)" -ForegroundColor DarkYellow
+        Write-Host "  Create it manually: `"$chrome`" --kiosk http://localhost:4000/kiosk --no-first-run --disable-infobars" -ForegroundColor DarkGray
     }
 } else {
-    Write-Host "  Chrome not found - skipping shortcut. Install Chrome and create a shortcut manually." -ForegroundColor DarkYellow
+    Write-Host "  Chrome not found - install Chrome then create a shortcut manually." -ForegroundColor DarkYellow
     Write-Host "  Target: chrome.exe --kiosk http://localhost:4000/kiosk" -ForegroundColor DarkGray
 }
 
@@ -206,8 +195,7 @@ Write-Host "  Kiosk URL:    http://localhost:4000/kiosk" -ForegroundColor White
 Write-Host "  Auto-starts on boot via PM2." -ForegroundColor White
 Write-Host ""
 Write-Host "  To update later, just re-run this installer." -ForegroundColor DarkGray
-Write-Host ""
-Read-Host "Press Enter to close"
+$success = $true
 
 } catch {
     Write-Host ""
@@ -217,6 +205,6 @@ Read-Host "Press Enter to close"
     Write-Host ""
     Write-Host "ERROR: $_" -ForegroundColor Red
     Write-Host ""
-    Read-Host "Press Enter to exit"
-    exit 1
+} finally {
+    Read-Host "Press Enter to close"
 }
