@@ -90,12 +90,27 @@ if ([string]::IsNullOrWhiteSpace($centralUrl)) { $centralUrl = $defaultUrl }
 
 $tenantCode = ""
 while ([string]::IsNullOrWhiteSpace($tenantCode)) {
-    $tenantCode = Read-Host "  Tenant / company code (e.g. ABG)"
-    if ([string]::IsNullOrWhiteSpace($tenantCode)) {
+    $raw = Read-Host "  Tenant / company code (e.g. ABG)"
+    if ([string]::IsNullOrWhiteSpace($raw)) {
         Write-Host "  Tenant code is required." -ForegroundColor Red
+        continue
+    }
+    $raw = $raw.ToUpper().Trim()
+    Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
+    try {
+        $resp = Invoke-WebRequest -Uri "$centralUrl/api/kiosk/validate-tenant?tenant=$raw" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $json = $resp.Content | ConvertFrom-Json
+        Write-Host "  Verified: $($json.name)" -ForegroundColor Green
+        $tenantCode = $raw
+    } catch {
+        $status = $_.Exception.Response.StatusCode.Value__
+        if ($status -eq 404) {
+            Write-Host "  Company code '$raw' not found. Please check the code and try again." -ForegroundColor Red
+        } else {
+            Write-Host "  Could not reach server ($centralUrl). Check the URL and try again." -ForegroundColor Red
+        }
     }
 }
-$tenantCode = $tenantCode.ToUpper().Trim()
 
 # -- 5. Write .env -------------------------------------------------------------
 $envPath = Join-Path $INSTALL_DIR ".env"
