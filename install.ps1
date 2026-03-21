@@ -131,7 +131,7 @@ if ($chrome) {
     } catch {
         Write-Host "  Could not create shortcut automatically ($_)" -ForegroundColor DarkYellow
         Write-Host "  Manually create a Chrome shortcut with target:" -ForegroundColor DarkGray
-        Write-Host "  `"$chrome`" --kiosk http://localhost:4000 --no-first-run --disable-infobars" -ForegroundColor DarkGray
+        Write-Host "  `"$chrome`" --kiosk http://localhost:4000/kiosk --no-first-run --disable-infobars" -ForegroundColor DarkGray
     }
 } else {
     Write-Host "  Chrome not found - skipping shortcut. Install Chrome and create a shortcut manually." -ForegroundColor DarkYellow
@@ -144,7 +144,7 @@ Write-Host "=====================================" -ForegroundColor Green
 Write-Host "  Installation complete!" -ForegroundColor Green
 Write-Host "=====================================" -ForegroundColor Green
 Write-Host ""
-Write-Host "  The kiosk service is now running on http://localhost:4000" -ForegroundColor White
+Write-Host "  The kiosk service is now running on http://localhost:4000/kiosk" -ForegroundColor White
 Write-Host "  It will auto-start every time this PC boots." -ForegroundColor White
 Write-Host "  Use the SmartWorkforce Kiosk shortcut on the desktop to open it." -ForegroundColor White
 Write-Host ""
