@@ -112,7 +112,7 @@ while ([string]::IsNullOrWhiteSpace($tenantCode)) {
         if ($status -eq 404) {
             Write-Host "  Company code '$raw' not found. Please check and try again." -ForegroundColor Red
         } else {
-            Write-Host "  Could not verify code. Server error — try again." -ForegroundColor Red
+            Write-Host "  Could not verify code. Server error - try again." -ForegroundColor Red
         }
     }
 }
