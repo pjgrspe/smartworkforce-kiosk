@@ -1,11 +1,9 @@
 /**
- * Configuration Constants for DE WEBNET Server
+ * Configuration Constants for SmartWorkforce Server
  */
 
 module.exports = {
   // WebSocket Configuration
-  WS_PORT: process.env.WS_PORT || 8080,
-  WS_HOST: process.env.WS_HOST || 'localhost',
   WS_HEARTBEAT_INTERVAL: 30000, // 30 seconds
 
   // Client Types
@@ -56,12 +54,6 @@ module.exports = {
     BATCH_SIZE: 10
   },
 
-  // NeDB Configuration
-  NEDB_CONFIG: {
-    COMPACTION_INTERVAL_MS: parseInt(process.env.NEDB_COMPACTION_INTERVAL_MS || '86400000'), // 24 hours
-    RETENTION_DAYS: 30
-  },
-
   // Face Recognition Configuration
   RECOGNITION_CONFIG: {
     CONFIDENCE_THRESHOLD: parseFloat(process.env.CONFIDENCE_THRESHOLD || '0.6'),
@@ -71,7 +63,7 @@ module.exports = {
   // Logging Configuration
   LOG_CONFIG: {
     LEVEL: process.env.LOG_LEVEL || 'info',
-    FILE_PATH: process.env.LOG_FILE_PATH || 'logs/DE WEBNET.log',
+    FILE_PATH: process.env.LOG_FILE_PATH || 'logs/smartworkforce.log',
     MAX_SIZE: parseInt(process.env.LOG_MAX_SIZE || '10485760'), // 10MB
     MAX_FILES: parseInt(process.env.LOG_MAX_FILES || '30')
   }

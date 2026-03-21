@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { WebSocketProvider } from './contexts/WebSocketContext'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { TenantProvider } from './contexts/TenantContext'
 import Layout from './components/Layout'
 import SensitiveAccessGate from './components/SensitiveAccessGate'
 import Spinner from './components/ui/Spinner'
@@ -21,6 +22,7 @@ import Corrections from './pages/Corrections'
 import PayrollSettings from './pages/PayrollSettings'
 import PayrollRuns from './pages/PayrollRuns'
 import Users from './pages/Users'
+import Tenants from './pages/Tenants'
 import Profile from './pages/Profile'
 
 // Wrap a page in the sidebar Layout
@@ -61,8 +63,10 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <Login />} />
 
-      {/* Kiosk is public — no login required (uses tenant code stored in localStorage) */}
-      <Route path="/kiosk" element={<Kiosk />} />
+      {/* Kiosk — only accessible from branch PCs (localhost). Redirect to login on central server. */}
+      <Route path="/kiosk" element={
+        window.location.hostname === 'localhost' ? <Kiosk /> : <Navigate to="/login" />
+      } />
 
       {/* Admin / HR pages — all protected */}
       <Route path="/dashboard" element={
@@ -92,6 +96,9 @@ function AppRoutes() {
       <Route path="/users" element={
         <AdminPage roles={['super_admin','client_admin']}>{withSensitiveAccess(<Users />)}</AdminPage>
       } />
+      <Route path="/tenants" element={
+        <AdminPage roles={['super_admin']}><Tenants /></AdminPage>
+      } />
       <Route path="/profile" element={
         <AdminPage><Profile /></AdminPage>
       } />
@@ -109,9 +116,11 @@ export default function App() {
     <ThemeProvider>
       <BrowserRouter>
         <AuthProvider>
-          <WebSocketProvider>
-            <AppRoutes />
-          </WebSocketProvider>
+          <TenantProvider>
+            <WebSocketProvider>
+              <AppRoutes />
+            </WebSocketProvider>
+          </TenantProvider>
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

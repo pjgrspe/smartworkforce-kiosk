@@ -1,12 +1,14 @@
-﻿/**
+/**
  * Attendance Page — logs with date/employee filters + exception badges.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getAttendance, getEmployees } from '../config/api'
+import { getAttendance, getEmployees, createCorrection } from '../config/api'
 import { fmtDate, fmtTime, employeeName } from '../lib/format'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
+import { NewCorrectionModal } from './Corrections'
+import { useAuth } from '../contexts/AuthContext'
 
 const TYPE_VARIANT = {
   IN:        'IN',
@@ -22,17 +24,38 @@ const SOURCE_LABEL = {
 }
 
 const fieldCls = `
-  h-8 px-3 text-xs bg-navy-600 border border-navy-500 text-navy-100
-  placeholder:text-navy-400/50 focus:outline-none
-  focus-visible:border-accent focus-visible:ring-1 focus-visible:ring-accent/30
-  transition-colors duration-80 rounded-md
+  h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100
+  placeholder:text-navy-400 focus:outline-none focus:border-accent rounded-md
 `
 
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
+}
+
+function toTimeHHmm(ts) {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 export default function Attendance() {
-  const [logs,      setLogs]      = useState([])
-  const [employees, setEmployees] = useState([])
-  const [loading,   setLoading]   = useState(false)
-  const [exporting, setExporting] = useState(false)
+  const { user } = useAuth()
+  const canCorrect = ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager'].includes(user?.role)
+  const [logs,       setLogs]       = useState([])
+  const [employees,  setEmployees]  = useState([])
+  const [loading,    setLoading]    = useState(false)
+  const [exporting,  setExporting]  = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
   const [filters,   setFilters]   = useState({
     employeeId: '',
     from: new Date().toISOString().slice(0, 10),
@@ -41,8 +64,7 @@ export default function Attendance() {
   const [empSearch, setEmpSearch] = useState('')
   const [empPickerOpen, setEmpPickerOpen] = useState(false)
   const [page, setPage] = useState(1)
-  const [sortBy, setSortBy] = useState('timestamp')
-  const [sortDir, setSortDir] = useState('desc')
+  const { col, dir, toggle } = useSortable('timestamp', 'desc')
   const PAGE_SIZE = 50
   const FETCH_LIMIT = 5000
 
@@ -79,7 +101,7 @@ export default function Attendance() {
       let left = 0
       let right = 0
 
-      switch (sortBy) {
+      switch (col) {
         case 'employee':
           left = safeText(employeeName(a.employeeId))
           right = safeText(employeeName(b.employeeId))
@@ -91,10 +113,6 @@ export default function Attendance() {
         case 'source':
           left = safeText(SOURCE_LABEL[a.source] ?? a.source)
           right = safeText(SOURCE_LABEL[b.source] ?? b.source)
-          break
-        case 'confidence':
-          left = safeNum(a.confidenceScore)
-          right = safeNum(b.confidenceScore)
           break
         case 'timestamp':
         default:
@@ -111,7 +129,7 @@ export default function Attendance() {
       }
 
       if (comparison !== 0) {
-        return sortDir === 'asc' ? comparison : -comparison
+        return dir === 'asc' ? comparison : -comparison
       }
 
       // Stable fallback: always keep deterministic newest-first by timestamp when values tie
@@ -119,11 +137,11 @@ export default function Attendance() {
     })
 
     return list
-  }, [logs, sortBy, sortDir])
+  }, [logs, col, dir])
 
   useEffect(() => {
     setPage(1)
-  }, [sortBy, sortDir])
+  }, [col, dir])
 
   const paginated  = sortedLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.ceil(sortedLogs.length / PAGE_SIZE)
@@ -373,30 +391,6 @@ export default function Attendance() {
             )
           })()}
         </div>
-        <div className="flex flex-col gap-1">
-          <label className="label-caps">Sort By</label>
-          <select
-            className={fieldCls}
-            value={sortBy}
-            onChange={e => setSortBy(e.target.value)}
-          >
-            <option value="timestamp">Date & Time</option>
-            <option value="employee">Employee</option>
-            <option value="type">Type</option>
-            <option value="source">Source</option>
-          </select>
-        </div>
-        <div className="flex flex-col gap-1">
-          <label className="label-caps">Order</label>
-          <select
-            className={fieldCls}
-            value={sortDir}
-            onChange={e => setSortDir(e.target.value)}
-          >
-            <option value="desc">Descending</option>
-            <option value="asc">Ascending</option>
-          </select>
-        </div>
         <div className="ml-auto">
           <button
             type="button"
@@ -421,9 +415,13 @@ export default function Attendance() {
               <table className="table-base">
                 <thead className="sticky top-0 z-10">
                   <tr className="table-head-row">
-                  {['Employee', 'Date', 'Time', 'Type', 'Source', 'Exceptions'].map(h => (
-                    <th key={h} className="table-th">{h}</th>
-                  ))}
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('employee')}>Employee <SortIcon dir={col==='employee'?dir:null}/></th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('timestamp')}>Date <SortIcon dir={col==='timestamp'?dir:null}/></th>
+                    <th className="table-th">Time</th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('type')}>Type <SortIcon dir={col==='type'?dir:null}/></th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('source')}>Source <SortIcon dir={col==='source'?dir:null}/></th>
+                    <th className="table-th">Exceptions</th>
+                    {canCorrect && <th className="table-th w-10" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -461,6 +459,15 @@ export default function Attendance() {
                           {ex.isOvertimeCandidate && <Badge variant="info">OT {ex.overtimeMinutes}m</Badge>}
                         </div>
                       </td>
+                      {canCorrect && (
+                        <td className="px-4 py-2.5">
+                          <button
+                            onClick={() => setEditTarget(log)}
+                            className="text-2xs text-accent hover:text-accent-200 transition-colors"
+                            title="Request correction for this log"
+                          >Edit</button>
+                        </td>
+                      )}
                       </tr>
                     )
                   })}
@@ -488,9 +495,26 @@ export default function Attendance() {
           </>
         )}
       </div>
+
+      {editTarget && (
+        <NewCorrectionModal
+          employees={employees}
+          canSelectEmployee={true}
+          selfServiceOnly={false}
+          initialValues={{
+            employeeId:          editTarget.employeeId?._id || editTarget.employeeId,
+            targetDate:          new Date(editTarget.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }),
+            adjustmentOperation: 'update',
+            adjustmentLogId:     editTarget._id,
+            adjustmentType:      editTarget.type,
+            adjustmentTime:      toTimeHHmm(editTarget.timestamp),
+          }}
+          onClose={() => setEditTarget(null)}
+          onDone={() => { setEditTarget(null); loadData() }}
+          onSubmit={createCorrection}
+        />
+      )}
     </div>
   )
 }
-
-
 

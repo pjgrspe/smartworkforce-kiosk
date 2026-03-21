@@ -176,8 +176,23 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   const basicPay = round2(workDayRate * daysPresent);
 
   // Late & undertime deductions
-  const lateDeduction      = round2((totalLateMinutes      / 60) * hourlyRate);
-  const undertimeDeduction = round2((totalUndertimeMinutes / 60) * hourlyRate);
+  const rawLateDeduction      = round2((totalLateMinutes      / 60) * hourlyRate);
+  const rawUndertimeDeduction = round2((totalUndertimeMinutes / 60) * hourlyRate);
+
+  // Cap: combined attendance deductions cannot exceed basic pay for the period.
+  // This prevents a scenario where an employee arrives very late AND leaves very early
+  // such that the sum of both penalties exceeds what they earned for being present.
+  // In that case, the employee is effectively absent — basic pay is zeroed out by the cap.
+  const rawAttendanceCombined = round2(rawLateDeduction + rawUndertimeDeduction);
+  let lateDeduction, undertimeDeduction;
+  if (rawAttendanceCombined > basicPay && rawAttendanceCombined > 0) {
+    const scale      = basicPay / rawAttendanceCombined;
+    lateDeduction      = round2(rawLateDeduction      * scale);
+    undertimeDeduction = round2(rawUndertimeDeduction * scale);
+  } else {
+    lateDeduction      = rawLateDeduction;
+    undertimeDeduction = rawUndertimeDeduction;
+  }
 
   // OT multipliers from tenant config (fallback to DOLE minimums)
   const otM = tenantSettings.overtimeMultipliers || {};
@@ -223,6 +238,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   const grossPay = round2(
     basicPay + overtimePay + holidayPay + nightDiffPay + allowancesTotal
   );
+  // attendanceDeductions already capped to basicPay via the scaling above
   const attendanceDeductions = round2(lateDeduction + undertimeDeduction);
   const taxablePeriodGross = round2(Math.max(0, grossPay - attendanceDeductions));
 

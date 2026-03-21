@@ -1,7 +1,7 @@
-﻿/**
+/**
  * Users Page — admin-only user management.
  */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { getUsers, createUser, updateUser, deleteUser, getBranches, getEmployees, verifyPassword } from '../config/api'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
@@ -30,6 +30,21 @@ const ROLE_VARIANT = {
 }
 
 const EMPTY = { email: '', firstName: '', lastName: '', role: 'employee', branchId: '', employeeId: '', password: '', isActive: true }
+
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
+}
 
 // ── User Modal ────────────────────────────────────────────────────────
 function UserModal({ initial, branches, employees, currentUser, onClose, onSave }) {
@@ -184,6 +199,7 @@ export default function Users() {
   const [reauthLoading, setReauthLoading] = useState(false)
   const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
   const [selectedUser, setSelectedUser] = useState(null)
+  const { col, dir, toggle } = useSortable('name')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -270,9 +286,30 @@ export default function Users() {
     return branches.find(b => b._id === value)?.name || '—'
   }
 
+  const getBranchSortKey = (u) => {
+    if (!u.branchId) return ''
+    if (typeof u.branchId === 'object') return (u.branchId.name || '').toLowerCase()
+    return (branches.find(b => b._id === u.branchId)?.name || '').toLowerCase()
+  }
+
   const filtered = users.filter(u =>
     !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase())
   )
+
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let av, bv
+      if (col === 'name') { av = `${a.firstName} ${a.lastName}`.toLowerCase(); bv = `${b.firstName} ${b.lastName}`.toLowerCase() }
+      else if (col === 'email') { av = (a.email||'').toLowerCase(); bv = (b.email||'').toLowerCase() }
+      else if (col === 'role') { av = a.role||''; bv = b.role||'' }
+      else if (col === 'branch') { av = getBranchSortKey(a); bv = getBranchSortKey(b) }
+      else if (col === 'status') { av = a.isActive?'active':'inactive'; bv = b.isActive?'active':'inactive' }
+      else return 0
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filtered, col, dir, branches])
 
   const employeeMap = new Map(employees.map((employee) => [employee._id, employee]))
 
@@ -292,19 +329,21 @@ export default function Users() {
         <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
           User Accounts
         </h1>
-        <Button variant="primary" size="sm" onClick={() => setModal('create')}>
+        <Button variant="primary" size="md" onClick={() => setModal('create')}>
           + Add User
         </Button>
       </div>
 
       {/* Toolbar */}
-      <div className="px-6 py-3 border-b border-navy-500 flex gap-3">
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search name or email…"
-          className="field-base w-64 text-xs"
-        />
+      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-navy-500/50 bg-navy-800">
+        <div className="ml-auto w-56">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search name or email…"
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -316,19 +355,22 @@ export default function Users() {
             <table className="table-base">
               <thead className="sticky top-0 z-10">
                 <tr className="table-head-row">
-                  {['Name', 'Email', 'Role', 'Branch', 'Status', ''].map(h => (
-                    <th key={h} className="table-th">{h}</th>
-                  ))}
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('name')}>Name <SortIcon dir={col==='name'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('email')}>Email <SortIcon dir={col==='email'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('role')}>Role <SortIcon dir={col==='role'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('branch')}>Branch <SortIcon dir={col==='branch'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('status')}>Status <SortIcon dir={col==='status'?dir:null}/></th>
+                  <th className="table-th"></th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.length === 0 ? (
+                {sorted.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="table-empty">
                       No users found.
                     </td>
                   </tr>
-                ) : filtered.map((u, i) => (
+                ) : sorted.map((u, i) => (
                   <tr key={u._id}
                       className={`table-row cursor-pointer ${i % 2 !== 0 ? 'table-row-alt' : ''} ${selectedUser?._id === u._id ? 'bg-accent/10' : ''}`}
                       onClick={() => requestSensitiveAction({ type: 'view', user: u })}>
@@ -349,21 +391,23 @@ export default function Users() {
                       {u.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </td>
-                  <td className="px-4 py-2.5 text-right">
+                  <td className="px-4 py-2.5">
                     {(() => {
                       const CLIENT_ADMIN_MANAGEABLE = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor']
                       const canManage = user?.role === 'super_admin' || CLIENT_ADMIN_MANAGEABLE.includes(u.role)
                       if (!canManage) return null
-                      return (<>
-                        <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'edit', user: u }) }}
-                          className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">
-                          Edit
-                        </button>
-                        <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'delete', id: u._id }) }}
-                          className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
-                          Delete
-                        </button>
-                      </>)
+                      return (
+                        <div className="flex items-center gap-3">
+                          <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'edit', user: u }) }}
+                            className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                            Edit
+                          </button>
+                          <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'delete', id: u._id }) }}
+                            className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
+                            Delete
+                          </button>
+                        </div>
+                      )
                     })()}
                   </td>
                   </tr>

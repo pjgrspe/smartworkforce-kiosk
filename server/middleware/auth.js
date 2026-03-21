@@ -56,6 +56,12 @@ async function authenticate(req, res, next) {
       }
     }
     req.user = payload;
+    // Allow super_admin to operate within a specific tenant's context.
+    // The frontend sends X-Active-Tenant when a company is selected in the switcher.
+    const tenantOverride = req.headers['x-active-tenant'];
+    if (tenantOverride && req.user.role === 'super_admin') {
+      req.user.tenantId = tenantOverride;
+    }
     next();
   } catch (err) {
     logger.warn('JWT verification failed:', err.message);

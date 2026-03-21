@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/pgorospe/SideProjects/ABG/Apollo/kiosk-service -type f -name *.js)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

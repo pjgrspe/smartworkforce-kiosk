@@ -83,14 +83,17 @@ router.get('/recent', resolveTenant, async (req, res) => {
 // Body: { tenant, employeeId, type, confidenceScore }
 // Queues to SQLite offline buffer when the database is unreachable.
 router.post('/punch', resolveTenant, async (req, res) => {
-  const { employeeId, type, confidenceScore } = req.body;
+  const { employeeId, type, confidenceScore, timestamp: bodyTimestamp } = req.body;
 
   if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
   if (!['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'].includes(type)) {
     return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
   }
 
-  const now = new Date();
+  // Use the original punch timestamp if provided (offline sync from kiosk-service),
+  // otherwise fall back to now (direct punch from browser kiosk).
+  const parsedBody = bodyTimestamp ? new Date(bodyTimestamp) : null;
+  const now = (parsedBody && !isNaN(parsedBody.getTime())) ? parsedBody : new Date();
 
   // ── Offline path ────────────────────────────────────────────────────────────
   if (!(await checkDatabaseConnection())) {
@@ -123,6 +126,9 @@ router.post('/punch', resolveTenant, async (req, res) => {
     logger.info(`Kiosk punch: ${type} - ${employeeName}`);
     return res.status(201).json({ data: created });
   } catch (err) {
+    if (err.code === 'PUNCH_SEQUENCE_ERROR') {
+      return res.status(409).json({ error: err.message });
+    }
     logger.error('POST /kiosk/punch DB error - buffering offline:', err.message);
     offlineBuf.queuePunch({
       tenantId: req.tenantId, branchId: null,

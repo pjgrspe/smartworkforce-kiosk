@@ -1,8 +1,8 @@
-﻿/**
+/**
  * Branches Page — manage branches and departments.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   getBranches, createBranch, updateBranch, deleteBranch,
   getDepartments, createDepartment, updateDepartment, deleteDepartment, verifyPassword,
@@ -17,15 +17,34 @@ import Spinner from '../components/ui/Spinner'
 // ── Shared table styles ──────────────────────────────────────────────
 const th = 'label-caps px-4 py-2.5 text-left'
 
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
+}
+
 export default function Branches() {
   const { user } = useAuth()
   const isSuperAdmin = user?.role === 'super_admin'
 
   const [tab, setTab] = useState('branches')
+  const [search, setSearch] = useState('')
 
   const [branches, setBranches] = useState([])
   const [depts,    setDepts]    = useState([])
   const [loading,  setLoading]  = useState(true)
+
+  const branchSort = useSortable('name')
+  const deptSort = useSortable('name')
 
   // Branch modal
   const [branchModal,  setBranchModal]  = useState(false)
@@ -60,6 +79,9 @@ export default function Branches() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // Reset search when switching tabs
+  const handleTabChange = (t) => { setTab(t); setSearch('') }
 
   // ── Branch handlers ──────────────────────────────────────────────
   const openBranchCreate = () => {
@@ -182,6 +204,40 @@ export default function Branches() {
   const saveDept = () => requestSensitiveAction({ type: 'save_dept' })
   const handleDeleteDept = (id) => requestSensitiveAction({ type: 'delete_dept', id })
 
+  const filteredBranches = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q ? branches.filter(b =>
+      b.name?.toLowerCase().includes(q) || b.code?.toLowerCase().includes(q) || b.address?.toLowerCase().includes(q)
+    ) : branches
+    return [...list].sort((a, b) => {
+      const { col, dir } = branchSort
+      let av = col === 'code' ? (a.code||'') : col === 'name' ? (a.name||'') : ''
+      let bv = col === 'code' ? (b.code||'') : col === 'name' ? (b.name||'') : ''
+      av = av.toLowerCase(); bv = bv.toLowerCase()
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [branches, search, branchSort])
+
+  const filteredDepts = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q ? depts.filter(d =>
+      d.name?.toLowerCase().includes(q) || d.code?.toLowerCase().includes(q)
+    ) : depts
+    return [...list].sort((a, b) => {
+      const { col, dir } = deptSort
+      const branchA = branches.find(br => br._id === (a.branchId?._id || a.branchId))
+      const branchB = branches.find(br => br._id === (b.branchId?._id || b.branchId))
+      let av = col === 'code' ? (a.code||'') : col === 'name' ? (a.name||'') : col === 'branch' ? (branchA?.name||'') : ''
+      let bv = col === 'code' ? (b.code||'') : col === 'name' ? (b.name||'') : col === 'branch' ? (branchB?.name||'') : ''
+      av = av.toLowerCase(); bv = bv.toLowerCase()
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [depts, branches, search, deptSort])
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
 
@@ -191,16 +247,24 @@ export default function Branches() {
         <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
           Branches &amp; Departments
         </h1>
+        {(isSuperAdmin || tab !== 'branches') && (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={tab === 'branches' ? openBranchCreate : openDeptCreate}
+          >
+            + Add {tab === 'branches' ? 'Branch' : 'Department'}
+          </Button>
+        )}
       </div>
 
-      {/* Tab bar + CTA */}
-      <div className="flex items-center justify-between px-6 py-2.5
-                      border-b border-navy-500/50 bg-navy-800">
+      {/* Tab bar */}
+      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-navy-500/50 bg-navy-800">
         <div className="flex gap-1">
           {['branches', 'departments'].map(t => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => handleTabChange(t)}
               className={`px-4 h-7 text-xs font-medium uppercase tracking-wider
                          transition-colors duration-80 rounded-md
                          ${tab === t
@@ -211,15 +275,14 @@ export default function Branches() {
             </button>
           ))}
         </div>
-        {(isSuperAdmin || tab !== 'branches') && (
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={tab === 'branches' ? openBranchCreate : openDeptCreate}
-          >
-            + Add {tab === 'branches' ? 'Branch' : 'Department'}
-          </Button>
-        )}
+        <div className="ml-auto w-56">
+          <input
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+            placeholder={tab === 'branches' ? 'Search branches…' : 'Search departments…'}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -231,26 +294,30 @@ export default function Branches() {
             <table className="table-base">
               <thead className="sticky top-0 z-10">
                 <tr className="table-head-row">
-                  {['Code', 'Name', 'Address', 'Phone', 'Actions'].map(h => (
-                    <th key={h} className={th}>{h}</th>
-                  ))}
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => branchSort.toggle('code')}>Code <SortIcon dir={branchSort.col==='code'?branchSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => branchSort.toggle('name')}>Name <SortIcon dir={branchSort.col==='name'?branchSort.dir:null}/></th>
+                  <th className={th}>Address</th>
+                  <th className={th}>Phone</th>
+                  <th className={th}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {branches.length === 0 ? (
+                {filteredBranches.length === 0 ? (
                   <tr><td colSpan={5} className="table-empty">No branches yet.</td></tr>
-                ) : branches.map((b, i) => (
+                ) : filteredBranches.map((b, i) => (
                   <tr key={b._id}
                       className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
                   <td className="px-4 py-2.5 font-mono text-navy-300">{b.code}</td>
                   <td className="px-4 py-2.5 font-medium text-navy-100">{b.name}</td>
                   <td className="px-4 py-2.5 text-navy-300">{b.address || '—'}</td>
                   <td className="px-4 py-2.5 text-navy-300">{b.phone || '—'}</td>
-                  <td className="px-4 py-2.5 flex gap-3">
-                    <button onClick={() => openBranchEdit(b)}
-                      className="text-accent hover:text-accent-200 transition-colors">Edit</button>
-                    <button onClick={() => handleDeleteBranch(b._id)}
-                      className="text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => openBranchEdit(b)}
+                        className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                      <button onClick={() => handleDeleteBranch(b._id)}
+                        className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                    </div>
                   </td>
                   </tr>
                 ))}
@@ -262,15 +329,17 @@ export default function Branches() {
             <table className="table-base">
               <thead className="sticky top-0 z-10">
                 <tr className="table-head-row">
-                  {['Code', 'Name', 'Branch', 'Description', 'Actions'].map(h => (
-                    <th key={h} className={th}>{h}</th>
-                  ))}
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('code')}>Code <SortIcon dir={deptSort.col==='code'?deptSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('name')}>Name <SortIcon dir={deptSort.col==='name'?deptSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('branch')}>Branch <SortIcon dir={deptSort.col==='branch'?deptSort.dir:null}/></th>
+                  <th className={th}>Description</th>
+                  <th className={th}>Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {depts.length === 0 ? (
+                {filteredDepts.length === 0 ? (
                   <tr><td colSpan={5} className="table-empty">No departments yet.</td></tr>
-                ) : depts.map((d, i) => {
+                ) : filteredDepts.map((d, i) => {
                   const branch = branches.find(b => b._id === (d.branchId?._id || d.branchId))
                   return (
                     <tr key={d._id}
@@ -279,11 +348,13 @@ export default function Branches() {
                     <td className="px-4 py-2.5 font-medium text-navy-100">{d.name}</td>
                     <td className="px-4 py-2.5 text-navy-300">{branch?.name || '—'}</td>
                     <td className="px-4 py-2.5 text-navy-400">{d.description || '—'}</td>
-                    <td className="px-4 py-2.5 flex gap-3">
-                      <button onClick={() => openDeptEdit(d)}
-                        className="text-accent hover:text-accent-200 transition-colors">Edit</button>
-                      <button onClick={() => handleDeleteDept(d._id)}
-                        className="text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => openDeptEdit(d)}
+                          className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                        <button onClick={() => handleDeleteDept(d._id)}
+                          className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                      </div>
                     </td>
                     </tr>
                   )

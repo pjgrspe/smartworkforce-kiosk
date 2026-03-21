@@ -17,7 +17,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import ThemeToggle from '../components/ui/ThemeToggle'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
-const CDN_WEIGHTS      = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
+// VITE_MODEL_URL lets the kiosk-service point to locally cached model weights
+// so the kiosk works offline. Falls back to jsDelivr CDN.
+const CDN_WEIGHTS      = import.meta.env.VITE_MODEL_URL || 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
 const CONFIRM_FRAMES   = 4        // consecutive matching frames required before confirming
 const MATCH_THRESHOLD  = 0.48     // max Euclidean distance for a valid match
 const MARGIN_MIN       = 0.07     // min gap between best and 2nd-best match (ambiguity guard)
@@ -45,12 +47,15 @@ function calcEAR(landmarks) {
   return (leftEAR + rightEAR) / 2
 }
 
-const PUNCH_TYPES = [
-  { key: 'IN',        label: 'Time In',    bg: 'bg-signal-success hover:opacity-90' },
-  { key: 'BREAK_OUT', label: 'Break Out',  bg: 'bg-signal-warning hover:opacity-90' },
-  { key: 'BREAK_IN',  label: 'Break In',   bg: 'bg-accent hover:bg-accent-400' },
-  { key: 'OUT',       label: 'Time Out',   bg: 'bg-signal-danger hover:opacity-90' },
+const ATTENDANCE_PUNCHES = [
+  { key: 'IN',  label: 'Time In',  bg: 'bg-signal-success hover:opacity-90' },
+  { key: 'OUT', label: 'Time Out', bg: 'bg-signal-danger hover:opacity-90'  },
 ]
+const BREAK_PUNCHES = [
+  { key: 'BREAK_IN',  label: 'Break In',  bg: 'bg-accent hover:bg-accent-400'       },
+  { key: 'BREAK_OUT', label: 'Break Out', bg: 'bg-signal-warning hover:opacity-90'  },
+]
+const PUNCH_TYPES = [...ATTENDANCE_PUNCHES, ...BREAK_PUNCHES]
 
 const TYPE_COLOR = {
   IN: 'text-signal-success', OUT: 'text-signal-danger',
@@ -171,7 +176,8 @@ export default function Kiosk() {
   const [phase,     setPhase]     = useState('loading')
   const [loadMsg,   setLoadMsg]   = useState('Initializing...')
   const [confirmed, setConfirmed] = useState(null)     // { id, name, confidence }
-  const [punchType, setPunchType] = useState(null)
+  const [punchType,  setPunchType]  = useState(null)
+  const [punchError, setPunchError] = useState('')
   const [recent,    setRecent]    = useState([])
   const [employees, setEmployees] = useState([])
 
@@ -189,19 +195,36 @@ export default function Kiosk() {
   // Liveness state: track blink detection per match attempt
   const livenessRef   = useRef({ earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 })
 
-  const [cameras, setCameras] = useState([])
-  const [selCam,  setSelCam]  = useState('')
+  const [cameras,    setCameras]    = useState([])
+  const [selCam,     setSelCam]     = useState('')
+  const [syncStatus, setSyncStatus] = useState(null) // null = unknown, { online, pending }
 
   const setPhaseSync = (p) => { phaseRef.current = p; setPhase(p) }
 
-  // Auto-upgrade legacy tenant codes saved in browser storage.
+  // On startup: if no tenant code saved, try to auto-fetch it from the kiosk-service
+  // config endpoint. This skips the manual setup screen on branch PCs.
+  // Falls back to the setup screen if the endpoint isn't available (e.g. central server).
   useEffect(() => {
     const current = localStorage.getItem('kiosk_tenant')
     const normalized = normalizeTenantCode(current)
-    if (normalized && normalized !== current) {
-      localStorage.setItem('kiosk_tenant', normalized)
-      setTenantCode(normalized)
+    if (normalized) {
+      // Auto-upgrade legacy tenant codes saved in browser storage.
+      if (normalized !== current) {
+        localStorage.setItem('kiosk_tenant', normalized)
+        setTenantCode(normalized)
+      }
+      return
     }
+    // No saved code — try kiosk-service config endpoint
+    fetch('/api/kiosk/config')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.tenantCode) {
+          localStorage.setItem('kiosk_tenant', data.tenantCode)
+          setTenantCode(data.tenantCode)
+        }
+      })
+      .catch(() => {})
   }, [])
 
   // ── Enumerate cameras on mount ────────────────────────────────────────────
@@ -216,6 +239,25 @@ export default function Kiosk() {
           setSelCam(vids[0]?.deviceId || '')
         })
       })
+  }, [])
+
+  // ── Kiosk-service sync status via WebSocket ───────────────────────────────
+  useEffect(() => {
+    // Only connect when running inside the kiosk-service (localhost:4000)
+    if (window.location.hostname !== 'localhost') return
+    const ws = new WebSocket('ws://localhost:4001')
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'SYNC_STATUS' || msg.type === 'PONG') {
+          setSyncStatus({ online: msg.online, pending: msg.pending ?? 0 })
+        }
+      } catch (_) {}
+    }
+    ws.onclose = () => setSyncStatus(s => s ? { ...s, online: false } : { online: false, pending: 0 })
+    // Keepalive ping every 30s
+    const ping = setInterval(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'PING' })) }, 30_000)
+    return () => { clearInterval(ping); ws.close() }
   }, [])
 
   // ── Load models + data ─────────────────────────────────────────────────────
@@ -534,13 +576,15 @@ export default function Kiosk() {
         setPhaseSync('running')
         rafRef.current = setTimeout(detectLoop, DETECT_INTERVAL)
       }, SUCCESS_HOLD_MS)
-    } catch {
+    } catch (err) {
+      setPunchError(err.message || 'Failed to record. Please try again.')
       setPhaseSync('fail')
       setTimeout(() => {
         setConfirmed(null); matchBufRef.current = { id: null, count: 0 }
+        setPunchError('')
         setPhaseSync('running')
         rafRef.current = setTimeout(detectLoop, DETECT_INTERVAL)
-      }, 3000)
+      }, 4000)
     }
   }
 
@@ -686,7 +730,8 @@ export default function Kiosk() {
                 className="absolute inset-0 flex items-center justify-center bg-navy-950/95 z-10"
               >
                 <div className="text-center">
-                  <p className="text-2xl text-signal-danger">Failed to record. Please try again.</p>
+                  <p className="text-2xl text-signal-danger font-semibold mb-2">{punchError || 'Failed to record.'}</p>
+                  {!punchError && <p className="text-navy-400 text-sm">Please try again.</p>}
                 </div>
               </motion.div>
             )}
@@ -701,17 +746,36 @@ export default function Kiosk() {
             <p className="label-caps mb-3">
               {phase === 'confirmed' ? `Tap to log for ${confirmed?.name?.split(' ')[0]}` : 'Select punch type'}
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              {PUNCH_TYPES.map(pt => (
-                <button
-                  key={pt.key}
-                  disabled={phase !== 'confirmed'}
-                  onClick={() => doPunch(pt.key)}
-                  className={`${pt.bg} flex flex-col items-center gap-2 py-5 rounded-lg font-semibold text-sm transition disabled:opacity-25 disabled:cursor-not-allowed active:scale-95`}
-                >
-                  {pt.label}
-                </button>
-              ))}
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                {ATTENDANCE_PUNCHES.map(pt => (
+                  <button
+                    key={pt.key}
+                    disabled={phase !== 'confirmed'}
+                    onClick={() => doPunch(pt.key)}
+                    className={`${pt.bg} flex items-center justify-center py-5 rounded-lg font-semibold text-sm transition disabled:opacity-25 disabled:cursor-not-allowed active:scale-95`}
+                  >
+                    {pt.label}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 py-1">
+                <div className="flex-1 h-px bg-navy-600" />
+                <span className="text-2xs text-navy-500 uppercase tracking-wider">Break</span>
+                <div className="flex-1 h-px bg-navy-600" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                {BREAK_PUNCHES.map(pt => (
+                  <button
+                    key={pt.key}
+                    disabled={phase !== 'confirmed'}
+                    onClick={() => doPunch(pt.key)}
+                    className={`${pt.bg} flex items-center justify-center py-4 rounded-lg font-semibold text-sm transition disabled:opacity-25 disabled:cursor-not-allowed active:scale-95`}
+                  >
+                    {pt.label}
+                  </button>
+                ))}
+              </div>
             </div>
             {phase === 'running' && (
               <p className="text-center text-navy-400 text-xs mt-3">Waiting for face recognition...</p>
@@ -753,6 +817,28 @@ export default function Kiosk() {
             </div>
           </div>
           <div className="p-4 border-t border-navy-500 space-y-3">
+            {/* Sync status */}
+            {syncStatus !== null && (
+              <div className="flex items-center justify-between">
+                <span className="label-caps">Sync</span>
+                {!syncStatus.online ? (
+                  <div className="flex items-center gap-1.5 text-xs text-signal-danger font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-signal-danger shrink-0" />
+                    Offline
+                  </div>
+                ) : syncStatus.pending > 0 ? (
+                  <div className="flex items-center gap-1.5 text-xs text-signal-warning font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-signal-warning animate-pulse shrink-0" />
+                    {syncStatus.pending} pending
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5 text-xs text-signal-success font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-signal-success shrink-0" />
+                    Synced
+                  </div>
+                )}
+              </div>
+            )}
             {/* Camera selector */}
             {cameras.length > 0 && (
               <div>

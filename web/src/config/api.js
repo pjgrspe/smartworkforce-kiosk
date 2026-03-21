@@ -3,9 +3,13 @@
  * Thin wrapper around fetch that attaches the stored JWT.
  */
 
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api'
+const BASE_URL = import.meta.env.VITE_API_URL || '/api'
 const MAX_SAFE_TOKEN_LENGTH = 6000
 const CENTRAL_URL_KEY = 'dewebnet_central_url'
+
+// Active tenant override — set by TenantContext when super_admin switches company
+let _activeTenantId = null
+export function setActiveTenantId(id) { _activeTenantId = id }
 
 function getBaseUrl() {
   return localStorage.getItem(CENTRAL_URL_KEY) || BASE_URL
@@ -44,6 +48,7 @@ async function request(method, path, body) {
   const headers = { 'Content-Type': 'application/json' }
   const token = getToken()
   if (token) headers['Authorization'] = `Bearer ${token}`
+  if (_activeTenantId) headers['X-Active-Tenant'] = _activeTenantId
 
   const res = await fetch(`${getBaseUrl()}${path}`, {
     method,
@@ -210,8 +215,11 @@ export const approveCorrection = (id, notes)  => request('PATCH', `/corrections/
 export const rejectCorrection  = (id, notes)  => request('PATCH', `/corrections/${id}/reject`,  { notes })
 
 // ── Tenant ────────────────────────────────────────────────────────
-export const getTenantSettings    = ()     => request('GET',   '/tenants/current')
-export const updateTenantSettings = (body) => request('PATCH', '/tenants/current', body)
+export const getTenants           = ()          => request('GET',   '/tenants')
+export const createTenant         = (body)      => request('POST',  '/tenants', body)
+export const updateTenant         = (id, body)  => request('PATCH', `/tenants/${id}`, body)
+export const getTenantSettings    = ()          => request('GET',   '/tenants/current')
+export const updateTenantSettings = (body)      => request('PATCH', '/tenants/current', body)
 
 // ── Payroll Runs ──────────────────────────────────────────────────
 export const getPayrollRuns     = ()     => request('GET',   '/payroll')

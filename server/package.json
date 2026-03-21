@@ -1,7 +1,7 @@
 {
-  "name": "de-webnet-node-server",
+  "name": "smartworkforce-server",
   "version": "2.0.0",
-  "description": "Node.js Middleware Bridge for DE WEBNET Facial Recognition System",
+  "description": "SmartWorkforce Central Server",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -19,7 +19,6 @@
     "db:migrate:postgres:domains": "node scripts/run-postgres-migration.js 0005_domain_tables.sql"
   },
   "dependencies": {
-    "@seald-io/nedb": "^4.1.2",
     "bcryptjs": "^2.4.3",
     "better-sqlite3": "^12.6.2",
     "cors": "^2.8.5",

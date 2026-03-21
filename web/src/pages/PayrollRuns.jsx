@@ -1,9 +1,9 @@
-﻿/**
+/**
  * Payroll Runs Page
  * Create draft → compute → submit → approve → finalize workflow.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import JSZip from 'jszip'
 import {
   getPayrollRuns, getPayrollRun, createPayrollRun,
@@ -25,6 +25,11 @@ const STATUS_VARIANT = {
   pending_approval: 'warning',
   approved:         'blue',
   finalized:        'success',
+}
+
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
 }
 
 // ── Run List Item ─────────────────────────────────────────────────────
@@ -165,25 +170,76 @@ function NewRunModal({ onClose, onCreate, onCreated, branches, currentUser }) {
 
 // ── Payslip Table ─────────────────────────────────────────────────────
 function PayslipTable({ run, onExportPayslip, exportingEmployeeId }) {
-  const items = run.payslipItems || []
-  const cols = [
-    'Employee', 'Basic', 'OT', 'Holiday', 'Night Diff', 'Allow.',
-    'Gross', 'SSS', 'PhilHealth', 'PagIbig', 'Tax', 'Other', 'Total Ded.', 'Net', 'Export',
-  ]
+  const [search, setSearch] = useState('')
+  const [sortCol, setSortCol] = useState('name')
+  const [sortDir, setSortDir] = useState('asc')
+
+  const toggleSort = (c) => {
+    if (sortCol === c) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortCol(c); setSortDir('asc') }
+  }
+
+  const items = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q
+      ? (run.payslipItems || []).filter(p => (p.employeeName||p.employeeCode||'').toLowerCase().includes(q))
+      : (run.payslipItems || [])
+    return [...list].sort((a, b) => {
+      let av, bv
+      if (sortCol === 'name') { av = (a.employeeName||a.employeeCode||'').toLowerCase(); bv = (b.employeeName||b.employeeCode||'').toLowerCase() }
+      else if (sortCol === 'gross') { av = a.grossPay||0; bv = b.grossPay||0 }
+      else if (sortCol === 'net') { av = a.netPay||0; bv = b.netPay||0 }
+      else if (sortCol === 'deductions') { av = a.totalDeductions||0; bv = b.totalDeductions||0 }
+      else return 0
+      if (av < bv) return sortDir === 'asc' ? -1 : 1
+      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [run.payslipItems, search, sortCol, sortDir])
+
+  const COL_COUNT = 17
+
   return (
     <div className="table-shell overflow-x-auto border-t border-navy-500">
+      <div className="flex items-center gap-3 px-4 py-2.5 border-b border-navy-500/50 bg-navy-800/40">
+        <p className="label-caps shrink-0">{items.length} employees</p>
+        <div className="ml-auto w-48">
+          <input
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+            placeholder="Search employee…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
       <table className="table-base text-2xs">
         <thead>
           <tr className="table-head-row">
-            {cols.map(h => (
-              <th key={h} className="table-th whitespace-nowrap">{h}</th>
-            ))}
+            {/* Earnings */}
+            <th className="table-th whitespace-nowrap cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggleSort('name')}>Employee <SortIcon dir={sortCol==='name'?sortDir:null}/></th>
+            <th className="table-th whitespace-nowrap">Basic</th>
+            <th className="table-th whitespace-nowrap">OT</th>
+            <th className="table-th whitespace-nowrap">Holiday</th>
+            <th className="table-th whitespace-nowrap">Night Diff</th>
+            <th className="table-th whitespace-nowrap">Allow.</th>
+            <th className="table-th whitespace-nowrap cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggleSort('gross')}>Gross <SortIcon dir={sortCol==='gross'?sortDir:null}/></th>
+            {/* Deductions */}
+            <th className="table-th whitespace-nowrap text-signal-warning/80">Late</th>
+            <th className="table-th whitespace-nowrap text-signal-warning/80">Undertime</th>
+            <th className="table-th whitespace-nowrap">SSS</th>
+            <th className="table-th whitespace-nowrap">PhilHealth</th>
+            <th className="table-th whitespace-nowrap">PagIbig</th>
+            <th className="table-th whitespace-nowrap">Tax</th>
+            <th className="table-th whitespace-nowrap">Other</th>
+            <th className="table-th whitespace-nowrap cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggleSort('deductions')}>Total Ded. <SortIcon dir={sortCol==='deductions'?sortDir:null}/></th>
+            <th className="table-th whitespace-nowrap cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggleSort('net')}>Net <SortIcon dir={sortCol==='net'?sortDir:null}/></th>
+            <th className="table-th whitespace-nowrap">Export</th>
           </tr>
         </thead>
         <tbody>
           {items.length === 0 ? (
             <tr>
-              <td colSpan={cols.length} className="table-empty">
+              <td colSpan={COL_COUNT} className="table-empty">
                 No payslip items yet — click Compute first.
               </td>
             </tr>
@@ -197,6 +253,8 @@ function PayslipTable({ run, onExportPayslip, exportingEmployeeId }) {
                 <td key={j} className="px-4 py-2.5 text-right tabular text-navy-200">{fmtPeso(v)}</td>
               ))}
               <td className="px-4 py-2.5 text-right tabular font-medium text-navy-50">{fmtPeso(p.grossPay)}</td>
+              <td className="px-4 py-2.5 text-right tabular text-signal-warning/80">{fmtPeso(p.lateDeduction)}</td>
+              <td className="px-4 py-2.5 text-right tabular text-signal-warning/80">{fmtPeso(p.undertimeDeduction)}</td>
               {[p.sssContribution, p.philHealthContribution, p.pagIbigContribution, p.withholdingTax, p.otherDeductions].map((v, j) => (
                 <td key={j} className="px-4 py-2.5 text-right tabular text-signal-danger/80">{fmtPeso(v)}</td>
               ))}
@@ -212,7 +270,7 @@ function PayslipTable({ run, onExportPayslip, exportingEmployeeId }) {
                     type="button"
                     onClick={() => onExportPayslip(p)}
                     disabled={exportingEmployeeId === p.employeeId}
-                    className="text-2xs font-medium text-accent hover:text-accent-200 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                    className="text-2xs text-accent hover:text-accent-200 transition-colors disabled:opacity-50 disabled:cursor-wait"
                   >
                     {exportingEmployeeId === p.employeeId ? 'Exporting...' : 'PDF'}
                   </button>
@@ -226,7 +284,7 @@ function PayslipTable({ run, onExportPayslip, exportingEmployeeId }) {
             <tr className="bg-navy-600/40 border-t border-navy-500">
               <td className="px-4 py-2.5 font-bold text-navy-100" colSpan={6}>Totals</td>
               <td className="px-4 py-2.5 text-right tabular font-bold text-navy-50">{fmtPeso(run.totalGross)}</td>
-              <td colSpan={5} />
+              <td colSpan={7} />
               <td className="px-4 py-2.5 text-right tabular font-bold text-signal-danger">{fmtPeso(run.totalDeductions)}</td>
               <td className="px-4 py-2.5 text-right tabular font-bold text-signal-success">{fmtPeso(run.totalNet)}</td>
               <td />
@@ -257,6 +315,7 @@ export default function PayrollRuns() {
   const [exportingEmployeeId, setExportingEmployeeId] = useState(null)
   const [showNew,       setShowNew]       = useState(false)
   const [msg,           setMsg]           = useState({ text: '', ok: true })
+  const [runSearch,     setRunSearch]     = useState('')
   const [reauthOpen, setReauthOpen] = useState(false)
   const [reauthPassword, setReauthPassword] = useState('')
   const [reauthError, setReauthError] = useState('')
@@ -351,6 +410,16 @@ export default function PayrollRuns() {
     getBranches().then((response) => setBranches(response?.data || [])).catch(() => {})
     getTenantSettings().then((response) => setTenant(response?.data || null)).catch(() => {})
   }, [])
+
+  const filteredRuns = useMemo(() => {
+    if (!runSearch) return runs
+    const q = runSearch.toLowerCase()
+    return runs.filter(r => {
+      const label = getRunBranchLabel(r, branches).toLowerCase()
+      const dateRange = fmtDateRange(r.cutoffStart, r.cutoffEnd).toLowerCase()
+      return label.includes(q) || dateRange.includes(q) || r.status?.includes(q)
+    })
+  }, [runs, runSearch, branches])
 
   const selectRun = async (id) => {
     try { setSelected((await getPayrollRun(id))?.data) }
@@ -481,7 +550,7 @@ export default function PayrollRuns() {
           Payroll Runs
         </h1>
         {canCompute && (
-          <Button variant="primary" size="sm" onClick={() => requestSensitiveAction({ type: 'new_run_open' })}>
+          <Button variant="primary" size="md" onClick={() => requestSensitiveAction({ type: 'new_run_open' })}>
             + New Run
           </Button>
         )}
@@ -500,18 +569,24 @@ export default function PayrollRuns() {
                 <p className="mt-1 text-2xs text-navy-400">
                   {user?.branchId ? 'Scoped to your assigned branch' : 'Branch-aware payroll register'}
                 </p>
+                <input
+                  className="mt-3 w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+                  placeholder="Search runs…"
+                  value={runSearch}
+                  onChange={e => setRunSearch(e.target.value)}
+                />
               </div>
 
               {loading ? (
                 <div className="flex flex-1 items-center justify-center px-4"><Spinner size="lg" /></div>
-              ) : runs.length === 0 ? (
+              ) : filteredRuns.length === 0 ? (
                 <div className="flex flex-1 items-center justify-center px-6 text-center">
-                  <p className="text-sm text-navy-300">No payroll runs yet.</p>
+                  <p className="text-sm text-navy-300">{runs.length === 0 ? 'No payroll runs yet.' : 'No runs match your search.'}</p>
                 </div>
               ) : (
                 <div className="run-nav-list flex-1 overflow-auto py-0">
                   <div className="run-nav-divider border-y">
-                    {runs.map(r => (
+                    {filteredRuns.map(r => (
                       <div key={r._id} className="run-nav-divider border-b last:border-b-0">
                         <RunListItem
                           run={r}

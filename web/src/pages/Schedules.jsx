@@ -1,8 +1,8 @@
-﻿/**
+/**
  * Schedules Page — manage work schedules.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { getSchedules, createSchedule, updateSchedule, deleteSchedule, verifyPassword } from '../config/api'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
 import Modal from '../components/ui/Modal'
@@ -22,6 +22,21 @@ const EMPTY = {
   restDays: [0]
 }
 
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
+}
+
 export default function Schedules() {
   const [schedules, setSchedules] = useState([])
   const [loading,   setLoading]   = useState(true)
@@ -30,11 +45,13 @@ export default function Schedules() {
   const [form,      setForm]      = useState(EMPTY)
   const [saving,    setSaving]    = useState(false)
   const [error,     setError]     = useState('')
+  const [search,    setSearch]    = useState('')
   const [reauthOpen, setReauthOpen] = useState(false)
   const [reauthPassword, setReauthPassword] = useState('')
   const [reauthError, setReauthError] = useState('')
   const [reauthLoading, setReauthLoading] = useState(false)
   const [pendingAction, setPendingAction] = useState(null)
+  const { col, dir, toggle } = useSortable('name')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -143,6 +160,21 @@ export default function Schedules() {
 
   const setF = (k, v) => setForm(prev => ({ ...prev, [k]: v }))
 
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q ? schedules.filter(s =>
+      s.name?.toLowerCase().includes(q) || s.code?.toLowerCase().includes(q) || s.type?.toLowerCase().includes(q)
+    ) : schedules
+    return [...list].sort((a, b) => {
+      let av = col === 'code' ? (a.code||'') : col === 'name' ? (a.name||'') : col === 'type' ? (a.type||'') : col === 'shift' ? (a.shiftStart||'') : ''
+      let bv = col === 'code' ? (b.code||'') : col === 'name' ? (b.name||'') : col === 'type' ? (b.type||'') : col === 'shift' ? (b.shiftStart||'') : ''
+      av = av.toLowerCase(); bv = bv.toLowerCase()
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [schedules, search, col, dir])
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
 
@@ -152,7 +184,19 @@ export default function Schedules() {
         <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
           Schedules
         </h1>
-        <Button variant="primary" size="sm" onClick={openCreate}>+ Add Schedule</Button>
+        <Button variant="primary" size="md" onClick={openCreate}>+ Add Schedule</Button>
+      </div>
+
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-navy-500/50 bg-navy-800">
+        <div className="ml-auto w-56">
+          <input
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+            placeholder="Search schedules…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="flex-1 overflow-auto p-6">
@@ -163,19 +207,24 @@ export default function Schedules() {
             <table className="table-base">
               <thead className="sticky top-0 z-10">
                 <tr className="table-head-row">
-                  {['Code', 'Name', 'Type', 'Shift', 'Break', 'Grace', 'Rest Days', ''].map(h => (
-                    <th key={h} className="table-th">{h}</th>
-                  ))}
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('code')}>Code <SortIcon dir={col==='code'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('name')}>Name <SortIcon dir={col==='name'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('type')}>Type <SortIcon dir={col==='type'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('shift')}>Shift <SortIcon dir={col==='shift'?dir:null}/></th>
+                  <th className="table-th">Break</th>
+                  <th className="table-th">Grace</th>
+                  <th className="table-th">Rest Days</th>
+                  <th className="table-th"></th>
                 </tr>
               </thead>
               <tbody>
-                {schedules.length === 0 ? (
+                {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="table-empty">
                       No schedules yet.
                     </td>
                   </tr>
-                ) : schedules.map((s, i) => (
+                ) : filtered.map((s, i) => (
                   <tr key={s._id}
                       className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
                     <td className="px-4 py-2.5 font-mono text-navy-300">{s.code}</td>
@@ -195,15 +244,17 @@ export default function Schedules() {
                     <td className="px-4 py-2.5 text-navy-400">
                       {(s.restDays || []).map(d => DAYS[d]).join(', ')}
                     </td>
-                    <td className="px-4 py-2.5 text-right">
-                      <button onClick={() => openEdit(s)}
-                        className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">
-                        Edit
-                      </button>
-                      <button onClick={() => handleDelete(s._id)}
-                        className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
-                        Delete
-                      </button>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => openEdit(s)}
+                          className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                          Edit
+                        </button>
+                        <button onClick={() => handleDelete(s._id)}
+                          className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

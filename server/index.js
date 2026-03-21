@@ -2,6 +2,9 @@ require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') }
 
 const express      = require('express');
 const cors         = require('cors');
+const http         = require('http');
+const path         = require('path');
+const { WebSocketServer } = require('ws');
 const logger       = require('./utils/logger');
 const { connectDatabase, getDatabaseProvider } = require('./config/database');
 const { getRuntimeMode } = require('./config/runtime');
@@ -51,6 +54,17 @@ app.get('/api/health', (_, res) => res.json({
   mode: getRuntimeMode(),
 }));
 
+// ── Static web app ─────────────────────────────────────────────────────────────
+const webDistPath = path.join(__dirname, '../web/dist');
+app.use(express.static(webDistPath));
+// SPA fallback — all non-API routes serve index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(webDistPath, 'index.html'), err => {
+    if (err) res.status(404).json({ error: 'Web app not built yet' });
+  });
+});
+
 // ── Offline buffer flush ───────────────────────────────────────────────────────
 async function flushOfflineBuffer() {
   const pending = offlineBuf.getPendingPunches();
@@ -74,6 +88,37 @@ async function flushOfflineBuffer() {
 
 const PORT = parseInt(process.env.HTTP_PORT || '3000');
 
+const httpServer = http.createServer(app);
+
+// ── WebSocket server (same port as HTTP via upgrade) ───────────────────────────
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+const wsClients = new Set();
+
+wss.on('connection', (ws, req) => {
+  wsClients.add(ws);
+  logger.info(`WebSocket client connected from ${req.socket.remoteAddress}`);
+
+  ws.on('message', (data) => {
+    try {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'PING') {
+        ws.send(JSON.stringify({ type: 'PONG', timestamp: new Date().toISOString() }));
+      }
+    } catch (_) {}
+  });
+
+  ws.on('close', () => wsClients.delete(ws));
+  ws.on('error', () => wsClients.delete(ws));
+});
+
+// Expose broadcast helper for future use by routes/services
+app.locals.wsBroadcast = (msg) => {
+  const payload = JSON.stringify(msg);
+  for (const ws of wsClients) {
+    if (ws.readyState === 1) ws.send(payload);
+  }
+};
+
 connectDatabase()
   .then(() => {
     // Flush any punches that were queued while the server was offline
@@ -81,7 +126,7 @@ connectDatabase()
     startSyncWorker();
     // Re-flush every 30 seconds in case connectivity drops and returns mid-session
     setInterval(flushOfflineBuffer, 30_000);
-    app.listen(PORT, () => logger.info(`✅ DE WEBNET Server running on http://localhost:${PORT}`));
+    httpServer.listen(PORT, () => logger.info(`✅ DE WEBNET Server running on http://localhost:${PORT}`));
   })
   .catch(err => {
     logger.error('Failed to connect to database:', err);

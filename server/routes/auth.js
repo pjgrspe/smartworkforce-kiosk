@@ -125,7 +125,7 @@ router.post('/verify-password', authenticate, async (req, res) => {
 
     const ok = await bcrypt.compare(String(password), passwordHash);
     if (!ok) {
-      return res.status(401).json({ error: 'Incorrect password' });
+      return res.status(403).json({ error: 'Incorrect password' });
     }
 
     return res.json({ success: true, verifiedAt: new Date().toISOString() });

@@ -79,10 +79,30 @@ function formatEmployeeError(message) {
   if (message.includes('E11000') || message.includes('duplicate key')) {
     return 'Employee code already exists. Use a different code or restore the old employee record.'
   }
-  if (message.includes('Employee code "')) {
-    return message
+  if (message.includes('branchId is required')) {
+    return 'Please select a branch for this employee.'
+  }
+  if (message.includes('departmentId') && message.includes('required')) {
+    return 'Please select a department for this employee.'
+  }
+  if (message.includes('firstName') || message.includes('first_name')) {
+    return 'First name is required.'
+  }
+  if (message.includes('lastName') || message.includes('last_name')) {
+    return 'Last name is required.'
+  }
+  if (message.includes('employeeCode') || message.includes('employee_code')) {
+    return 'Employee code is required and must be unique.'
   }
   return message
+}
+
+function validateEmployeeForm(form, canManageBranches) {
+  if (!form.firstName?.trim()) return 'First name is required.'
+  if (!form.lastName?.trim()) return 'Last name is required.'
+  if (!form.employeeCode?.trim()) return 'Employee code is required.'
+  if (canManageBranches && !form.branchId) return 'Please select a branch for this employee.'
+  return null
 }
 
 // Face Enrollment Modal
@@ -122,6 +142,11 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
   }, [])
 
   useEffect(() => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setPhase('error')
+      setErrMsg('Camera access is only available over HTTPS. Please access this page using a secure connection (https://) to use face enrollment.')
+      return
+    }
     navigator.mediaDevices.getUserMedia({ video: true })
       .then(s => { s.getTracks().forEach(t => t.stop()) })
       .catch(() => {})
@@ -144,30 +169,40 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
   useEffect(() => {
     if (phase !== 'ready') return
     let alive = true
+    let running = false
+    const smoothed = { score: 0 }
+
     const tick = async () => {
-      if (!alive) return
+      if (!alive || running) return
+      running = true
       const video = videoRef.current
       if (video && video.readyState >= 2) {
         const faceapi = await getFaceApi()
         const det = await faceapi.detectSingleFace(
           video,
-          new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 })
+          new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.35 })
         )
         if (alive) {
-          setFaceOk(!!det)
-          setDetScore(det?.score ?? 0)
+          const raw = det?.score ?? 0
+          smoothed.score = smoothed.score * 0.6 + raw * 0.4
+          setFaceOk(smoothed.score > 0.42)
+          setDetScore(smoothed.score)
         }
       }
-      if (alive) detLoopRef.current = requestAnimationFrame(tick)
+      running = false
     }
-    detLoopRef.current = requestAnimationFrame(tick)
-    return () => { alive = false; cancelAnimationFrame(detLoopRef.current) }
+
+    detLoopRef.current = setInterval(tick, 250)
+    return () => { alive = false; clearInterval(detLoopRef.current) }
   }, [getFaceApi, phase])
 
   const startCamera = async () => {
     setPhase('loading')
     setErrMsg('')
     try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('Camera access requires a secure connection (HTTPS). Please contact your administrator to enable HTTPS on this server.')
+      }
       const faceapi = await getFaceApi()
       await Promise.all([
         faceapi.nets.tinyFaceDetector.loadFromUri(CDN_WEIGHTS),
@@ -196,6 +231,7 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
   const switchCamera = async (deviceId) => {
     setSelCam(deviceId)
     if (phase !== 'ready') return
+    if (!navigator.mediaDevices?.getUserMedia) return
     cancelAnimationFrame(detLoopRef.current)
     streamRef.current?.getTracks().forEach(t => t.stop())
     try {
@@ -327,11 +363,11 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
             {flash && <div className="absolute inset-0 bg-signal-success/40 pointer-events-none" />}
 
             {phase === 'ready' && (
-              <div className={`absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 text-2xs font-semibold ${
-                detScore >= 0.7 ? 'bg-signal-success text-white' :
+              <div className={`absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 text-2xs font-semibold transition-colors duration-300 ${
+                detScore >= 0.62 ? 'bg-signal-success text-white' :
                 faceOk ? 'bg-signal-warning text-[#151515]' : 'bg-signal-danger text-white'
               }`}>
-                {detScore >= 0.7
+                {detScore >= 0.62
                   ? `Quality ${Math.round(detScore * 100)}%`
                   : faceOk
                   ? 'Adjust position or lighting'
@@ -366,11 +402,9 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
                 variant="primary"
                 className="flex-1"
                 onClick={captureStep}
-                disabled={detScore < 0.65}
+                disabled={detScore < 0.62}
               >
-                {detScore >= 0.65
-                  ? `Capture Pose ${progress + 1}/${SAMPLES_NEEDED}`
-                  : 'Improve lighting / move closer'}
+                Capture Pose {progress + 1}/{SAMPLES_NEEDED}
               </Button>
             )}
             {phase === 'done' && (
@@ -663,6 +697,8 @@ export default function Employees() {
   }
 
   const handleSave = async () => {
+    const validationError = validateEmployeeForm(form, canManageBranches)
+    if (validationError) { setError(validationError); return }
     setError('')
     setSaving(true)
     try {
@@ -758,7 +794,7 @@ export default function Employees() {
       <div className="flex items-center justify-between px-6 py-3.5 border-b border-navy-500 bg-navy-800">
         <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">Employees</h1>
         {canEdit && (
-          <Button variant="primary" size="sm" onClick={openCreate}>+ Add Employee</Button>
+          <Button variant="primary" size="md" onClick={openCreate}>+ Add Employee</Button>
         )}
       </div>
 
@@ -873,9 +909,11 @@ export default function Employees() {
                           </td>
                           {canEdit && (
                             <td className="px-4 py-2.5 whitespace-nowrap">
-                              <button onClick={(event) => { event.stopPropagation(); requestEdit(emp) }} className="text-2xs text-accent hover:text-accent-200 mr-3 transition-colors">Edit</button>
-                              <button onClick={(event) => { event.stopPropagation(); requestFaceEnroll(emp) }} className="text-2xs text-navy-200 hover:text-navy-50 mr-3 transition-colors">{isEnrolled ? 'Re-enroll Face' : 'Enroll Face'}</button>
-                              <button onClick={(event) => { event.stopPropagation(); requestDelete(emp._id) }} className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                              <div className="flex items-center gap-3">
+                                <button onClick={(event) => { event.stopPropagation(); requestEdit(emp) }} className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                                <button onClick={(event) => { event.stopPropagation(); requestFaceEnroll(emp) }} className="text-2xs text-navy-300 hover:text-navy-100 transition-colors">{isEnrolled ? 'Re-enroll Face' : 'Enroll Face'}</button>
+                                <button onClick={(event) => { event.stopPropagation(); requestDelete(emp._id) }} className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                              </div>
                             </td>
                           )}
                         </tr>

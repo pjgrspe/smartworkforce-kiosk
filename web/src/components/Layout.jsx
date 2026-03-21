@@ -10,6 +10,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useWebSocket } from '../contexts/WebSocketContext'
+import { useTenant } from '../contexts/TenantContext'
 import ThemeToggle from './ui/ThemeToggle'
 import logo from '../img/delogo-2022.png'
 
@@ -64,6 +65,13 @@ const Icons = {
       <circle cx="8" cy="5" r="3" /><path d="M2 14.5c0-3.038 2.686-5.5 6-5.5s6 2.462 6 5.5" />
     </svg>
   ),
+  Tenants: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
+      <rect x="1" y="4" width="14" height="10" rx="0.5" />
+      <path d="M4 4V3a1 1 0 011-1h6a1 1 0 011 1v1" />
+      <path d="M1 8h14M5 8v6M11 8v6" />
+    </svg>
+  ),
   Profile: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
       <circle cx="8" cy="5" r="3" /><path d="M3 14.5c0-2.76 2.24-5 5-5s5 2.24 5 5" />
@@ -110,8 +118,9 @@ const NAV_GROUPS = [
   {
     label: 'System',
     items: [
-      { to: '/profile', label: 'Profile', Icon: Icons.Profile, roles: null },
-      { to: '/users', label: 'Users', Icon: Icons.Users, roles: ['super_admin', 'client_admin'] },
+      { to: '/profile',  label: 'Profile',  Icon: Icons.Profile,  roles: null },
+      { to: '/users',    label: 'Users',    Icon: Icons.Users,    roles: ['super_admin', 'client_admin'] },
+      { to: '/tenants',  label: 'Tenants',  Icon: Icons.Tenants,  roles: ['super_admin'] },
     ],
   },
 ]
@@ -120,6 +129,7 @@ const NAV_GROUPS = [
 export default function Layout({ children }) {
   const { user, signOut } = useAuth()
   const { isConnected, syncStatus } = useWebSocket()
+  const { activeTenant, tenants, switchTenant, isSuperAdmin } = useTenant()
 
   const visibleGroups = NAV_GROUPS
     .map(group => ({
@@ -179,6 +189,32 @@ export default function Layout({ children }) {
               </span>
             </div>
           </NavLink>
+        </div>
+
+        {/* Company context */}
+        <div className="px-4 py-2.5 border-b border-navy-500/20">
+          <p className="label-caps mb-1.5">Company</p>
+          {isSuperAdmin && tenants.length > 1 ? (
+            <select
+              value={activeTenant?.id || ''}
+              onChange={e => {
+                const t = tenants.find(t => t.id === e.target.value)
+                if (t) switchTenant(t)
+              }}
+              className="w-full bg-navy-700 border border-navy-500/60 rounded-md px-2.5 py-1.5 text-xs text-navy-100 focus:outline-none focus:border-accent transition-colors cursor-pointer"
+            >
+              {tenants.map(t => (
+                <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex items-center gap-2 px-2.5 py-1.5 bg-navy-700/40 rounded-md border border-navy-500/30">
+              <span className="w-1.5 h-1.5 rounded-full bg-signal-success shrink-0" />
+              <span className="text-xs text-navy-200 truncate font-medium">
+                {activeTenant?.name || user?.tenantId?.slice(0, 8) || '—'}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Navigation */}
@@ -246,7 +282,7 @@ export default function Layout({ children }) {
       </aside>
 
       {/* ━━ Main content ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
-      <main className="flex-1 min-w-0 flex flex-col overflow-auto bg-navy-900">
+      <main key={activeTenant?.id} className="flex-1 min-w-0 flex flex-col overflow-auto bg-navy-900">
         {children}
       </main>
     </div>

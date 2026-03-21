@@ -112,6 +112,24 @@ async function listCorrections({ tenantId, status, employeeId, scopedEmployeeIds
 
 async function createCorrection(payload) {
   const pool = getPool();
+
+  // Prevent duplicate pending corrections for the same punch type on the same date
+  const punchType = payload.after?.type;
+  if (punchType) {
+    const dup = await pool.query(
+      `SELECT id FROM attendance_correction_requests
+       WHERE employee_id = $1
+         AND target_date = $2
+         AND status = 'pending'
+         AND after_state->>'type' = $3
+       LIMIT 1`,
+      [payload.employeeId, payload.targetDate, punchType],
+    );
+    if (dup.rowCount) {
+      throw new Error(`A pending ${punchType} correction already exists for this employee on that date.`);
+    }
+  }
+
   const { rows } = await pool.query(
     `
       INSERT INTO attendance_correction_requests (

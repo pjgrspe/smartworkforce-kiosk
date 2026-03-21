@@ -85,6 +85,29 @@ async function getRecentAttendance(tenantId, limit = 15) {
   return rows.map(mapRecentAttendance);
 }
 
+const VALID_NEXT = {
+  null:        ['IN'],
+  'IN':        ['OUT', 'BREAK_IN'],
+  'OUT':       ['IN'],
+  'BREAK_IN':  ['BREAK_OUT'],
+  'BREAK_OUT': ['OUT', 'BREAK_IN'],
+};
+
+function punchSequenceError(last, next) {
+  if ((VALID_NEXT[last] ?? VALID_NEXT[null]).includes(next)) return null;
+  if (next === 'IN'        && last === 'IN')        return 'Already clocked in. Clock out first.';
+  if (next === 'IN'        && last === 'BREAK_IN')  return 'Break in progress. End your break first.';
+  if (next === 'IN'        && last === 'BREAK_OUT') return 'Already clocked in. Clock out first.';
+  if (next === 'OUT'       && !last)                return 'Not clocked in. Clock in first.';
+  if (next === 'OUT'       && last === 'OUT')       return 'Already clocked out.';
+  if (next === 'OUT'       && last === 'BREAK_IN')  return 'Break in progress. End your break before clocking out.';
+  if (next === 'BREAK_IN'  && !last)                return 'Not clocked in. Clock in before starting a break.';
+  if (next === 'BREAK_IN'  && last === 'OUT')       return 'Not clocked in. Clock in before starting a break.';
+  if (next === 'BREAK_IN'  && last === 'BREAK_IN')  return 'Already on break.';
+  if (next === 'BREAK_OUT' && last !== 'BREAK_IN')  return 'Not on break.';
+  return `Cannot record ${next} after ${last || 'no punch today'}.`;
+}
+
 async function createPunch({ tenantId, employeeId, type, confidenceScore, timestamp }) {
   const pool = getPool();
   const employeeResult = await pool.query(
@@ -99,6 +122,23 @@ async function createPunch({ tenantId, employeeId, type, confidenceScore, timest
 
   if (!employeeResult.rowCount) return null;
   const employee = employeeResult.rows[0];
+
+  // ── Sequence validation ──────────────────────────────────────────────────────
+  const todayStart = new Date(timestamp);
+  todayStart.setHours(0, 0, 0, 0);
+  const lastPunchResult = await pool.query(
+    `SELECT type FROM attendance_logs
+     WHERE employee_id = $1 AND tenant_id = $2 AND timestamp >= $3
+     ORDER BY timestamp DESC LIMIT 1`,
+    [employeeId, tenantId, todayStart],
+  );
+  const lastType = lastPunchResult.rows[0]?.type ?? null;
+  const seqErr = punchSequenceError(lastType, type);
+  if (seqErr) {
+    const err = new Error(seqErr);
+    err.code = 'PUNCH_SEQUENCE_ERROR';
+    throw err;
+  }
 
   const { rows } = await pool.query(
     `

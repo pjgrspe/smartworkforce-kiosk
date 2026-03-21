@@ -48,8 +48,11 @@ function buildTimestampFromAdjustment(targetDate, adjustment) {
   if (!match) throw new Error('Adjustment time must be HH:mm');
 
   const [, hh, mm] = match;
-  const ts = new Date(targetDate);
-  ts.setHours(Number(hh), Number(mm), 0, 0);
+  // Get the date string in Manila time to avoid server-timezone drift
+  const dateStr = new Date(targetDate).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  // Construct timestamp explicitly in Manila timezone (UTC+8)
+  const ts = new Date(`${dateStr}T${hh}:${mm}:00+08:00`);
+  if (Number.isNaN(ts.getTime())) throw new Error('Invalid adjustment time');
   return ts;
 }
 

@@ -1,7 +1,7 @@
 {
-  "name": "de-webnet-facial-recognition",
-  "version": "1.0.0",
-  "description": "Enterprise-Grade Facial Recognition Attendance System",
+  "name": "smartworkforce",
+  "version": "2.0.0",
+  "description": "SmartWorkforce — Facial Recognition Attendance Management System",
   "private": true,
   "workspaces": [
     "server",
@@ -40,7 +40,6 @@
     "opencv",
     "react",
     "nodejs",
-    "supabase",
     "websocket",
     "offline-first"
   ],

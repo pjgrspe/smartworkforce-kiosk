@@ -76,7 +76,7 @@ function mapCreateOrUpdatePayload(payload) {
 
 async function ensureRelations(pool, tenantId, payload) {
   if (!payload.branchId) {
-    throw new Error('branchId is required');
+    throw new Error('Please select a branch for this employee.');
   }
 
   const branch = await pool.query(
