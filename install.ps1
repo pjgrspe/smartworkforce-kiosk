@@ -84,10 +84,30 @@ Write-Host "Configuration" -ForegroundColor Yellow
 Write-Host "  (Press Enter to use the default shown in brackets)" -ForegroundColor DarkGray
 Write-Host ""
 
+# 4a. Central server URL — validate format and connectivity before accepting
 $defaultUrl = "https://abg-hrd.dewebnetsolution.com"
-$centralUrl = Read-Host "  Central server URL [$defaultUrl]"
-if ([string]::IsNullOrWhiteSpace($centralUrl)) { $centralUrl = $defaultUrl }
+$centralUrl = ""
+while ([string]::IsNullOrWhiteSpace($centralUrl)) {
+    $input = Read-Host "  Central server URL [$defaultUrl]"
+    if ([string]::IsNullOrWhiteSpace($input)) { $input = $defaultUrl }
+    $input = $input.Trim().TrimEnd('/')
 
+    if ($input -notmatch '^https?://') {
+        Write-Host "  Invalid URL. Must start with http:// or https://" -ForegroundColor Red
+        continue
+    }
+
+    Write-Host "  Checking server connection..." -ForegroundColor DarkGray
+    try {
+        $ping = Invoke-WebRequest -Uri "$input/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        Write-Host "  Server reachable." -ForegroundColor Green
+        $centralUrl = $input
+    } catch {
+        Write-Host "  Cannot reach server at '$input'. Check the URL and your internet connection." -ForegroundColor Red
+    }
+}
+
+# 4b. Tenant code — validate against server
 $tenantCode = ""
 while ([string]::IsNullOrWhiteSpace($tenantCode)) {
     $raw = Read-Host "  Tenant / company code (e.g. ABG)"
@@ -107,7 +127,7 @@ while ([string]::IsNullOrWhiteSpace($tenantCode)) {
         if ($status -eq 404) {
             Write-Host "  Company code '$raw' not found. Please check the code and try again." -ForegroundColor Red
         } else {
-            Write-Host "  Could not reach server ($centralUrl). Check the URL and try again." -ForegroundColor Red
+            Write-Host "  Could not verify code. Server error — try again." -ForegroundColor Red
         }
     }
 }
