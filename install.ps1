@@ -81,30 +81,17 @@ if (Test-Path (Join-Path $INSTALL_DIR ".git")) {
 # -- 4. Ask for config ---------------------------------------------------------
 Write-Host ""
 Write-Host "Configuration" -ForegroundColor Yellow
-Write-Host "  (Press Enter to use the default shown in brackets)" -ForegroundColor DarkGray
 Write-Host ""
 
-# 4a. Central server URL — validate format and connectivity before accepting
-$defaultUrl = "https://abg-hrd.dewebnetsolution.com"
-$centralUrl = ""
-while ([string]::IsNullOrWhiteSpace($centralUrl)) {
-    $input = Read-Host "  Central server URL [$defaultUrl]"
-    if ([string]::IsNullOrWhiteSpace($input)) { $input = $defaultUrl }
-    $input = $input.Trim().TrimEnd('/')
-
-    if ($input -notmatch '^https?://') {
-        Write-Host "  Invalid URL. Must start with http:// or https://" -ForegroundColor Red
-        continue
-    }
-
-    Write-Host "  Checking server connection..." -ForegroundColor DarkGray
-    try {
-        $ping = Invoke-WebRequest -Uri "$input/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-        Write-Host "  Server reachable." -ForegroundColor Green
-        $centralUrl = $input
-    } catch {
-        Write-Host "  Cannot reach server at '$input'. Check the URL and your internet connection." -ForegroundColor Red
-    }
+# 4a. Verify central server is reachable
+$centralUrl = "https://abg-hrd.dewebnetsolution.com"
+Write-Host "  Checking server connection..." -ForegroundColor DarkGray
+try {
+    Invoke-WebRequest -Uri "$centralUrl/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null
+    Write-Host "  Server reachable." -ForegroundColor Green
+} catch {
+    Write-Host "  Cannot reach the SmartWorkforce server. Make sure this PC has internet access and try again." -ForegroundColor Red
+    Read-Host "Press Enter to exit"; exit 1
 }
 
 # 4b. Tenant code — validate against server
