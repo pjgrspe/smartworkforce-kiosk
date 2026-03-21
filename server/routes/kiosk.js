@@ -34,6 +34,12 @@ const resolveTenant = async (req, res, next) => {
   }
 };
 
+// GET /api/kiosk/validate-tenant?tenant=ACME
+// Lightweight check — returns 200 if the tenant code is valid and active, 404 otherwise.
+router.get('/validate-tenant', resolveTenant, (req, res) => {
+  return res.json({ valid: true, name: req.tenant.name });
+});
+
 // GET /api/kiosk/employees?tenant=ACME
 // Returns active employees with face-api.js descriptors (no sensitive data).
 // Falls back to SQLite cache when MongoDB is unreachable.
