@@ -121,15 +121,8 @@ while ([string]::IsNullOrWhiteSpace($tenantCode)) {
 $envPath = Join-Path $INSTALL_DIR ".env"
 Write-Host ""
 Write-Host "Writing .env..." -ForegroundColor Yellow
-@"
-CENTRAL_URL=$centralUrl
-TENANT_CODE=$tenantCode
-PORT=4000
-WS_PORT=4001
-SYNC_INTERVAL_MS=30000
-ENCODING_REFRESH_INTERVAL_MS=600000
-DB_PATH=./data/kiosk.db
-"@ | Set-Content $envPath -Encoding UTF8
+$envContent = "CENTRAL_URL=$centralUrl`nTENANT_CODE=$tenantCode`nPORT=4000`nWS_PORT=4001`nSYNC_INTERVAL_MS=30000`nENCODING_REFRESH_INTERVAL_MS=600000`nDB_PATH=./data/kiosk.db"
+Set-Content $envPath -Value $envContent -Encoding UTF8
 Write-Host "  .env written." -ForegroundColor Green
 
 # -- 6. npm install ------------------------------------------------------------
