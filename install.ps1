@@ -99,7 +99,8 @@ try {
 
 $tenantCode = ""
 while ([string]::IsNullOrWhiteSpace($tenantCode)) {
-    $raw = Read-Host "  Tenant / company code (e.g. ABG)"
+    Write-Host "  Enter tenant / company code (e.g. ABG): " -ForegroundColor White -NoNewline
+    $raw = Read-Host
     if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "  Tenant code is required." -ForegroundColor Red; continue }
     $raw = $raw.ToUpper().Trim()
     Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
