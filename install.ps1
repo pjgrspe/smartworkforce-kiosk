@@ -91,7 +91,7 @@ Write-Host "  Dependencies installed." -ForegroundColor Green
 
 # -- 5. Download face models + build kiosk UI ----------------------------------
 Write-Host ""
-Write-Host "Downloading face recognition models and building kiosk UI..." -ForegroundColor Yellow
+Write-Host "Downloading face recognition models..." -ForegroundColor Yellow
 Write-Host "  (This only runs once - may take a minute)" -ForegroundColor DarkGray
 npm run setup
 Write-Host "  Setup complete." -ForegroundColor Green

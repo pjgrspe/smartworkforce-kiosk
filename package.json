@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "setup": "node scripts/download-models.js && cd ../web && npm run build:kiosk"
+    "setup": "node scripts/download-models.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

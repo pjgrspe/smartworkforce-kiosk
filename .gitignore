@@ -1,8 +1,6 @@
 node_modules/
 data/
 public/models/
-public/assets/
-public/index.html
 .env
 *.log
 npm-debug.log*
