@@ -1,6 +1,12 @@
 # SmartWorkforce Kiosk -- One-click installer for branch PCs
 # Download this file and right-click -> "Run with PowerShell"
 
+# Self-elevate with admin rights + bypass execution policy
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -NoProfile -File `"$PSCommandPath`"" -Verb RunAs
+    exit
+}
+
 $ErrorActionPreference = "Stop"
 
 $REPO_URL    = "https://github.com/pjgrspe/smartworkforce-kiosk.git"
