@@ -128,7 +128,7 @@ const NAV_GROUPS = [
 // ── Component ────────────────────────────────────────────────────────
 export default function Layout({ children }) {
   const { user, signOut } = useAuth()
-  const { isConnected, syncStatus } = useWebSocket()
+  const { isConnected } = useWebSocket()
   const { activeTenant, tenants, switchTenant, isSuperAdmin } = useTenant()
 
   const visibleGroups = NAV_GROUPS
@@ -251,23 +251,16 @@ export default function Layout({ children }) {
             <ThemeToggle />
           </div>
 
-          {/* WebSocket connection */}
+          {/* Live updates status */}
           <div className="flex items-center justify-between">
-            <span className="label-caps">WS</span>
+            <span className="label-caps">Live Updates</span>
             <div className={`flex items-center gap-1.5 text-2xs font-semibold tabular
                             ${isConnected ? 'text-signal-success' : 'text-navy-400'}`}>
               <span className={`w-1.5 h-1.5 rounded-full shrink-0
-                               ${isConnected ? 'bg-signal-success' : 'bg-navy-500'}`} />
-              {isConnected ? 'CONNECTED' : 'OFFLINE'}
+                               ${isConnected ? 'bg-signal-success animate-pulse' : 'bg-navy-500'}`} />
+              {isConnected ? 'LIVE' : 'DELAYED'}
             </div>
           </div>
-
-          {/* Pending sync */}
-          {syncStatus?.pending_sync_count > 0 && (
-            <p className="text-2xs text-signal-warning font-mono">
-              {syncStatus.pending_sync_count} pending sync
-            </p>
-          )}
 
           {/* Sign out */}
           <button
