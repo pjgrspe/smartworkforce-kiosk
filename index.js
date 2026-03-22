@@ -58,7 +58,13 @@ wss.on('connection', ws => {
   ws.on('message', msg => {
     try {
       const parsed = JSON.parse(msg.toString());
-      if (parsed.type === 'PING') ws.send(JSON.stringify({ type: 'PONG' }));
+      if (parsed.type === 'PING') {
+        ws.send(JSON.stringify({
+          type:    'PONG',
+          online:  sync.isOnline(),
+          pending: require('./db').pendingCount(),
+        }));
+      }
     } catch (_) {}
   });
 
