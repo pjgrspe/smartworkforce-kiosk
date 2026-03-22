@@ -48,6 +48,18 @@ const Icons = {
       <path d="M2 13.5L10 5.5l3 3-8 8H2v-3z" /><path d="M8.5 7l3 3" />
     </svg>
   ),
+  PayrollSalary: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
+      <rect x="1" y="3" width="14" height="10" rx="0.5" />
+      <path d="M8 6v4M6 7.5c0-.83.67-1.5 2-1.5s2 .67 2 1.5S9.33 9 8 9s-2 .67-2 1.5S7 12 8 12s2-.5 2-1.5" />
+    </svg>
+  ),
+  PayrollHolidays: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
+      <rect x="1" y="3" width="14" height="12" rx="0.5" /><path d="M1 7h14M5 1v4M11 1v4" />
+      <path d="M8 10l.59.59L10 9" />
+    </svg>
+  ),
   PayrollSettings: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
       <circle cx="8" cy="8" r="2.5" />
@@ -110,6 +122,8 @@ const NAV_GROUPS = [
   {
     label: 'Payroll',
     items: [
+      { to: '/payroll/salary',   label: 'Salary',   Icon: Icons.PayrollSalary,   roles: ['super_admin', 'client_admin', 'hr_payroll'] },
+      { to: '/payroll/holidays', label: 'Holidays', Icon: Icons.PayrollHolidays, roles: ['super_admin', 'client_admin', 'hr_payroll'] },
       { to: '/payroll/settings', label: 'Settings', Icon: Icons.PayrollSettings, roles: ['super_admin', 'client_admin', 'hr_payroll'] },
       { to: '/payroll/runs',     label: 'Runs',     Icon: Icons.PayrollRuns,     roles: ['super_admin', 'client_admin', 'hr_payroll', 'auditor'] },
     ],

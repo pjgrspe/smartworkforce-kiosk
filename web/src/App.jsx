@@ -19,6 +19,8 @@ import Branches from './pages/Branches'
 import Schedules from './pages/Schedules'
 import Attendance from './pages/Attendance'
 import Corrections from './pages/Corrections'
+import PayrollSalary from './pages/PayrollSalary'
+import PayrollHolidays from './pages/PayrollHolidays'
 import PayrollSettings from './pages/PayrollSettings'
 import PayrollRuns from './pages/PayrollRuns'
 import Users from './pages/Users'
@@ -86,6 +88,12 @@ function AppRoutes() {
       } />
       <Route path="/corrections" element={
         <AdminPage roles={['super_admin','client_admin','hr_payroll','branch_manager','auditor']}><Corrections /></AdminPage>
+      } />
+      <Route path="/payroll/salary" element={
+        <AdminPage roles={['super_admin','client_admin','hr_payroll']}>{withSensitiveAccess(<PayrollSalary />)}</AdminPage>
+      } />
+      <Route path="/payroll/holidays" element={
+        <AdminPage roles={['super_admin','client_admin','hr_payroll']}>{withSensitiveAccess(<PayrollHolidays />)}</AdminPage>
       } />
       <Route path="/payroll/settings" element={
         <AdminPage roles={['super_admin','client_admin','hr_payroll']}>{withSensitiveAccess(<PayrollSettings />)}</AdminPage>
