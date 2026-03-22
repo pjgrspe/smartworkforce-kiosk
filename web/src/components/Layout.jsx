@@ -11,7 +11,6 @@ import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTenant } from '../contexts/TenantContext'
 import ThemeToggle from './ui/ThemeToggle'
-import logo from '../img/delogo-2022.png'
 
 // ── Inline SVG icon set ──────────────────────────────────────────────
 const Icons = {
@@ -160,13 +159,15 @@ export default function Layout({ children }) {
 
         {/* Brand */}
         <div className="px-5 pt-5 pb-4 border-b border-navy-500/30">
-          <div className="flex items-center gap-2">
-            <img src={logo} alt="Aquino Bistro Group" className="h-7 w-auto" />
-            <span className="text-2xs text-navy-300 font-mono">v2.0</span>
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.25)]">
+              <span className="text-[11px] font-black text-white tracking-widest">ABG</span>
+            </div>
+            <div className="min-w-0">
+              <p className="text-[13px] font-bold text-navy-50 leading-none tracking-tight">SmartWorkforce</p>
+              <p className="text-2xs text-navy-400 mt-1 uppercase tracking-[0.12em]">HR &amp; Payroll</p>
+            </div>
           </div>
-          <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1.5 font-medium">
-            HR &amp; Payroll Platform
-          </p>
         </div>
 
         {/* Authenticated user chip */}
