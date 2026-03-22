@@ -19,21 +19,24 @@ function mapRow(row) {
 
 async function listBranches({ user }) {
   const pool = getPool();
-  const params = [user.tenantId];
-  let query = `
-    SELECT * FROM branches
-    WHERE tenant_id = $1
-      AND is_active = TRUE
-  `;
+  const params = [];
+  let where = 'WHERE is_active = TRUE';
 
-  const crossBranchRoles = ['super_admin', 'client_admin'];
-  if (!crossBranchRoles.includes(user.role) && user.branchId) {
-    params.push(user.branchId);
-    query += ` AND id = $${params.length}`;
+  if (user.role === 'super_admin') {
+    // super_admin sees all branches across all tenants
+  } else {
+    params.push(user.tenantId);
+    where += ` AND tenant_id = $${params.length}`;
+    if (!['client_admin'].includes(user.role) && user.branchId) {
+      params.push(user.branchId);
+      where += ` AND id = $${params.length}`;
+    }
   }
 
-  query += ' ORDER BY name ASC';
-  const { rows } = await pool.query(query, params);
+  const { rows } = await pool.query(
+    `SELECT * FROM branches ${where} ORDER BY name ASC`,
+    params,
+  );
   return rows.map(mapRow);
 }
 

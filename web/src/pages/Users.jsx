@@ -71,6 +71,9 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
     : ROLES.filter((role) => ['hr_payroll', 'branch_manager', 'employee', 'auditor'].includes(role.value))
   const requiresEmployeeLink = form.role === 'employee'
   const effectiveBranchId = branchLocked ? currentUser?.branchId : form.branchId
+  const visibleBranches = currentUser?.role === 'super_admin' && form.tenantId
+    ? branches.filter(b => b.tenantId === form.tenantId)
+    : branches
   const visibleEmployees = employees.filter((employee) => {
     if (!effectiveBranchId) return true
     return String(employee.branchId) === String(effectiveBranchId)
@@ -154,12 +157,12 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
           <Select label={branchLocked ? 'Branch (Locked)' : 'Branch'} value={form.branchId}
             onChange={e => set('branchId', e.target.value)} disabled={branchLocked}>
             <option value="">— None —</option>
-            {branches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+            {visibleBranches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
           </Select>
         </div>
         {currentUser?.role === 'super_admin' && (
           <Select label="Company (Tenant)" value={form.tenantId}
-            onChange={e => set('tenantId', e.target.value)}>
+            onChange={e => setForm(p => ({ ...p, tenantId: e.target.value, branchId: '' }))}>
             <option value="">— None —</option>
             {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </Select>
@@ -314,6 +317,7 @@ export default function Users() {
       if (col === 'name') { av = `${a.firstName} ${a.lastName}`.toLowerCase(); bv = `${b.firstName} ${b.lastName}`.toLowerCase() }
       else if (col === 'email') { av = (a.email||'').toLowerCase(); bv = (b.email||'').toLowerCase() }
       else if (col === 'role') { av = a.role||''; bv = b.role||'' }
+      else if (col === 'company') { av = (tenants.find(t => t.id === a.tenantId)?.name || '').toLowerCase(); bv = (tenants.find(t => t.id === b.tenantId)?.name || '').toLowerCase() }
       else if (col === 'branch') { av = getBranchSortKey(a); bv = getBranchSortKey(b) }
       else if (col === 'status') { av = a.isActive?'active':'inactive'; bv = b.isActive?'active':'inactive' }
       else return 0
@@ -370,6 +374,9 @@ export default function Users() {
                   <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('name')}>Name <SortIcon dir={col==='name'?dir:null}/></th>
                   <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('email')}>Email <SortIcon dir={col==='email'?dir:null}/></th>
                   <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('role')}>Role <SortIcon dir={col==='role'?dir:null}/></th>
+                  {user?.role === 'super_admin' && (
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('company')}>Company <SortIcon dir={col==='company'?dir:null}/></th>
+                  )}
                   <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('branch')}>Branch <SortIcon dir={col==='branch'?dir:null}/></th>
                   <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('status')}>Status <SortIcon dir={col==='status'?dir:null}/></th>
                   <th className="table-th"></th>
@@ -378,7 +385,7 @@ export default function Users() {
               <tbody>
                 {sorted.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="table-empty">
+                    <td colSpan={user?.role === 'super_admin' ? 7 : 6} className="table-empty">
                       No users found.
                     </td>
                   </tr>
@@ -395,6 +402,11 @@ export default function Users() {
                       {ROLES.find(r => r.value === u.role)?.label ?? u.role}
                     </Badge>
                   </td>
+                  {user?.role === 'super_admin' && (
+                    <td className="px-4 py-2.5 text-navy-400 text-xs">
+                      {u.tenantId ? (tenants.find(t => t.id === u.tenantId)?.name || '—') : <span className="text-navy-500">All</span>}
+                    </td>
+                  )}
                   <td className="px-4 py-2.5 text-navy-400">
                     {u.branchId ? branchName(u.branchId) : '—'}
                   </td>
