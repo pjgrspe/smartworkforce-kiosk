@@ -19,6 +19,7 @@ import Spinner from '../components/ui/Spinner'
 const STATUS_VARIANT = { pending: 'warning', approved: 'success', rejected: 'danger' }
 
 const PUNCH_TYPE_VARIANT = { IN: 'success', OUT: 'danger', BREAK_IN: 'info', BREAK_OUT: 'neutral' }
+const PUNCH_TYPE_LABEL   = { IN: 'IN', OUT: 'OUT', BREAK_IN: 'Start Break', BREAK_OUT: 'End Break' }
 
 const REASON_LABELS = {
   forgot_to_log: 'Forgot to Log',
@@ -42,6 +43,7 @@ const ADJUSTMENT_OPERATION_OPTIONS = [
 ]
 
 const ADJUSTMENT_TYPES = ['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT']
+
 
 function getPersonLabel(person, fallback = '—') {
   if (!person) return fallback
@@ -134,7 +136,7 @@ function ReviewModal({ correction, onClose, onDone }) {
           {after.type && (
             <div className="flex gap-3">
               <span className="label-caps w-24">Punch Type</span>
-              <Badge variant={PUNCH_TYPE_VARIANT[after.type] ?? 'neutral'}>{after.type}</Badge>
+              <Badge variant={PUNCH_TYPE_VARIANT[after.type] ?? 'neutral'}>{PUNCH_TYPE_LABEL[after.type] ?? after.type}</Badge>
             </div>
           )}
           {after.time && (
@@ -349,7 +351,7 @@ export function NewCorrectionModal({
               {(form.adjustmentOperation === 'create' || form.adjustmentOperation === 'update') && (
                 <Select label="Punch Type" value={form.adjustmentType}
                   onChange={e => setForm(p => ({ ...p, adjustmentType: e.target.value }))}>
-                  {ADJUSTMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  {ADJUSTMENT_TYPES.map(t => <option key={t} value={t}>{PUNCH_TYPE_LABEL[t] ?? t}</option>)}
                 </Select>
               )}
               {(form.adjustmentOperation === 'create' || form.adjustmentOperation === 'update') && (
@@ -564,7 +566,7 @@ export default function Corrections() {
                         </td>
                         <td className="px-4 py-2.5">
                           {after.type
-                            ? <Badge variant={PUNCH_TYPE_VARIANT[after.type] ?? 'neutral'}>{after.type}</Badge>
+                            ? <Badge variant={PUNCH_TYPE_VARIANT[after.type] ?? 'neutral'}>{PUNCH_TYPE_LABEL[after.type] ?? after.type}</Badge>
                             : <span className="text-navy-500">—</span>}
                         </td>
                         <td className="px-4 py-2.5">

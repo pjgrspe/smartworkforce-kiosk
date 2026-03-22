@@ -16,6 +16,7 @@ const TYPE_VARIANT = {
   BREAK_IN:  'warning',
   BREAK_OUT: 'info',
 }
+const TYPE_LABEL = { IN: 'IN', OUT: 'OUT', BREAK_IN: 'Start Break', BREAK_OUT: 'End Break' }
 
 const SOURCE_LABEL = {
   face_kiosk:       'Kiosk: Facial',
@@ -446,7 +447,7 @@ export default function Attendance() {
                         {fmtTime(log.timestamp)}
                       </td>
                       <td className="px-4 py-2.5">
-                        <Badge variant={TYPE_VARIANT[log.type] ?? 'neutral'}>{log.type}</Badge>
+                        <Badge variant={TYPE_VARIANT[log.type] ?? 'neutral'}>{TYPE_LABEL[log.type] ?? log.type}</Badge>
                       </td>
                       <td className="px-4 py-2.5 text-navy-300">
                         {SOURCE_LABEL[log.source] ?? log.source ?? '—'}

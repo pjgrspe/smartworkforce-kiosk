@@ -493,21 +493,28 @@ export default function Dashboard() {
   useEffect(() => {
     if (user?.role === 'employee') return undefined
 
-    Promise.all([
-      getEmployees().catch(()               => ({ data: [] })),
-      getAttendance({ limit: 200 }).catch(() => ({ data: [] })),
-      getCorrections({ status: 'pending' }).catch(() => ({ data: [] })),
-      getPayrollRuns().catch(()             => ({ data: [] })),
-    ]).then(([empRes, attRes, corrRes, payRes]) => {
-      const emps = empRes?.data  || []
-      const logs = attRes?.data  || []
-      const today = new Date().toDateString()
-      setEmployees(emps)
-      setTodayLogs(logs.filter(l => new Date(l.timestamp).toDateString() === today))
-      setPending((corrRes?.data || []).length)
-      setPayroll(payRes?.data   || [])
-      setRecent(logs.slice(0, 14))
-    }).finally(() => setLoading(false))
+    const load = (initial = false) => {
+      if (initial) setLoading(true)
+      Promise.all([
+        getEmployees().catch(()               => ({ data: [] })),
+        getAttendance({ limit: 200 }).catch(() => ({ data: [] })),
+        getCorrections({ status: 'pending' }).catch(() => ({ data: [] })),
+        getPayrollRuns().catch(()             => ({ data: [] })),
+      ]).then(([empRes, attRes, corrRes, payRes]) => {
+        const emps = empRes?.data  || []
+        const logs = attRes?.data  || []
+        const today = new Date().toDateString()
+        setEmployees(emps)
+        setTodayLogs(logs.filter(l => new Date(l.timestamp).toDateString() === today))
+        setPending((corrRes?.data || []).length)
+        setPayroll(payRes?.data   || [])
+        setRecent(logs.slice(0, 14))
+      }).finally(() => { if (initial) setLoading(false) })
+    }
+
+    load(true)
+    const timer = setInterval(() => load(false), 30000)
+    return () => clearInterval(timer)
   }, [user?.role])
 
   if (user?.role === 'employee') {

@@ -52,8 +52,8 @@ const ATTENDANCE_PUNCHES = [
   { key: 'OUT', label: 'Time Out', bg: 'bg-signal-danger hover:opacity-90'  },
 ]
 const BREAK_PUNCHES = [
-  { key: 'BREAK_IN',  label: 'Break In',  bg: 'bg-accent hover:bg-accent-400'       },
-  { key: 'BREAK_OUT', label: 'Break Out', bg: 'bg-signal-warning hover:opacity-90'  },
+  { key: 'BREAK_IN',  label: 'Start Break', bg: 'bg-accent hover:bg-accent-400'       },
+  { key: 'BREAK_OUT', label: 'End Break',   bg: 'bg-signal-warning hover:opacity-90'  },
 ]
 const PUNCH_TYPES = [...ATTENDANCE_PUNCHES, ...BREAK_PUNCHES]
 
@@ -334,12 +334,35 @@ export default function Kiosk() {
   // ── Camera ─────────────────────────────────────────────────────────────────
   const startCamera = async (deviceId) => {
     const camId = deviceId || selCam
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        ...(camId ? { deviceId: { exact: camId } } : { facingMode: 'user' }),
-        width: { ideal: 640 }, height: { ideal: 480 }
-      },
-    })
+
+    // Try progressively looser constraints so finicky laptop cameras still work
+    const attempts = [
+      camId ? { deviceId: { ideal: camId }, width: { ideal: 640 }, height: { ideal: 480 } } : null,
+      { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      { width: { ideal: 640 }, height: { ideal: 480 } },
+      true, // bare minimum — any camera
+    ].filter(Boolean)
+
+    let stream
+    let lastErr
+    for (const constraints of attempts) {
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: constraints })
+        break
+      } catch (err) {
+        lastErr = err
+      }
+    }
+
+    if (!stream) {
+      const msg = lastErr?.name === 'NotAllowedError'
+        ? 'Camera access denied. Allow camera permission in browser settings.'
+        : lastErr?.name === 'NotFoundError'
+        ? 'No camera found. Make sure a webcam is connected.'
+        : `Camera error: ${lastErr?.message || 'unknown'}. Try: close other apps using the camera, or check Windows camera privacy settings (Settings → Privacy → Camera).`
+      throw new Error(msg)
+    }
+
     streamRef.current = stream
     const video = videoRef.current
     if (!video) return
@@ -608,9 +631,6 @@ export default function Kiosk() {
 
   return (
     <div className="min-h-screen bg-navy-900 text-navy-50 flex flex-col overflow-hidden">
-      <div className="fixed top-4 right-4 z-30">
-        <ThemeToggle />
-      </div>
 
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3.5 bg-navy-800 border-b border-navy-500 shrink-0">
@@ -623,6 +643,7 @@ export default function Kiosk() {
             <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-signal-success animate-pulse' : 'bg-signal-warning'}`} />
             <span className="text-xs text-navy-300">{statusLabels[phase] || phase}</span>
           </div>
+          <ThemeToggle />
         </div>
         <Clock />
       </header>

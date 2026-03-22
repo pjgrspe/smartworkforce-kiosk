@@ -209,13 +209,25 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
         faceapi.nets.faceLandmark68TinyNet.loadFromUri(CDN_WEIGHTS),
         faceapi.nets.faceRecognitionNet.loadFromUri(CDN_WEIGHTS),
       ])
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          deviceId: selCam ? { exact: selCam } : undefined,
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        }
-      })
+      const attempts = [
+        selCam ? { deviceId: { ideal: selCam }, width: { ideal: 640 }, height: { ideal: 480 } } : null,
+        { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+        { width: { ideal: 640 }, height: { ideal: 480 } },
+        true,
+      ].filter(Boolean)
+      let stream, lastErr
+      for (const constraints of attempts) {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: constraints }); break }
+        catch (err) { lastErr = err }
+      }
+      if (!stream) {
+        const msg = lastErr?.name === 'NotAllowedError'
+          ? 'Camera access denied. Allow camera permission in browser settings.'
+          : lastErr?.name === 'NotFoundError'
+          ? 'No camera found. Make sure a webcam is connected.'
+          : `Camera error: ${lastErr?.message || 'unknown'}. Try closing other apps using the camera, or check Windows Settings → Privacy → Camera.`
+        throw new Error(msg)
+      }
       streamRef.current = stream
       const video = videoRef.current
       video.srcObject = stream
@@ -235,9 +247,17 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
     cancelAnimationFrame(detLoopRef.current)
     streamRef.current?.getTracks().forEach(t => t.stop())
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } }
-      })
+      const attempts = [
+        { deviceId: { ideal: deviceId }, width: { ideal: 640 }, height: { ideal: 480 } },
+        { width: { ideal: 640 }, height: { ideal: 480 } },
+        true,
+      ]
+      let stream, lastErr
+      for (const constraints of attempts) {
+        try { stream = await navigator.mediaDevices.getUserMedia({ video: constraints }); break }
+        catch (err) { lastErr = err }
+      }
+      if (!stream) throw lastErr
       streamRef.current = stream
       const video = videoRef.current
       video.srcObject = stream
