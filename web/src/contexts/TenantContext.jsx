@@ -7,7 +7,7 @@
 
 import { createContext, useContext, useState, useEffect } from 'react'
 import { useAuth } from './AuthContext'
-import { getTenants, setActiveTenantId } from '../config/api'
+import { getTenants, getTenantSettings, setActiveTenantId } from '../config/api'
 
 const TenantContext = createContext(null)
 
@@ -27,9 +27,15 @@ export function TenantProvider({ children }) {
     if (!user) { setActiveTenantState(null); return }
 
     if (!isSuperAdmin) {
-      // Non-super_admin: single tenant from JWT — no API call needed
+      // Non-super_admin: fetch tenant name for display; JWT already scopes all API calls
       setActiveTenantState({ id: user.tenantId, name: null, code: null })
-      setActiveTenantId(null) // no override needed — JWT already scopes correctly
+      setActiveTenantId(null)
+      getTenantSettings()
+        .then(res => {
+          const t = res?.data
+          if (t) setActiveTenantState({ id: user.tenantId, name: t.name, code: t.code })
+        })
+        .catch(() => {})
       return
     }
 
