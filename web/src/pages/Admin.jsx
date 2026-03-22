@@ -79,7 +79,7 @@ export default function Admin() {
       <header className="bg-navy-800 border-b border-navy-500">
         <div className="max-w-7xl mx-auto px-6 py-3.5">
           <div className="flex justify-between items-center">
-            <h1 className="text-sm font-semibold uppercase tracking-wider text-navy-50">DE WEBNET Admin Panel</h1>
+            <h1 className="text-sm font-semibold uppercase tracking-wider text-navy-50">Aquino Bistro Group Admin Panel</h1>
 
             <div className="flex items-center gap-4">
               {/* System Status Indicators */}

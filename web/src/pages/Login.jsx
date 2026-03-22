@@ -125,7 +125,7 @@ export default function Login() {
           {/* Wordmark */}
           <div>
             <div className="flex items-center gap-3">
-              <img src={logo} alt="DE WEBNET" className="h-10 w-auto" />
+              <img src={logo} alt="Aquino Bistro Group" className="h-10 w-auto" />
               <span className="text-xs text-navy-400 font-mono">v2.0</span>
             </div>
             <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-2 font-medium">
@@ -136,7 +136,7 @@ export default function Login() {
           {/* Hero copy */}
           <div className="mt-auto">
             <h1 className="text-[48px] font-thin text-navy-50 leading-[1.1] tracking-tighter">
-              DE Webnet<br />
+              Aquino Bistro Group<br />
               <span className="font-bold text-brand-green">SmartWorkforce</span>
             </h1>
             <p className="mt-5 text-sm text-navy-200 max-w-[360px] leading-relaxed font-light">
@@ -148,7 +148,7 @@ export default function Login() {
           {/* Footer classification */}
           <div className="mt-10 flex items-center justify-between text-xs text-navy-500
                           uppercase tracking-[0.11em] border-t border-navy-500/20 pt-4">
-            <span>DE Webnet SmartWorkforce (c) 2026</span>
+            <span>Aquino Bistro Group SmartWorkforce (c) 2026</span>
             <span className="font-mono">REV 2.0.0 // PH-REGION</span>
           </div>
         </div>
@@ -159,7 +159,7 @@ export default function Login() {
 
         {/* Mobile wordmark */}
         <div className="lg:hidden mb-10 flex flex-col items-center gap-1">
-          <img src={logo} alt="DE WEBNET" className="h-9 w-auto" />
+          <img src={logo} alt="Aquino Bistro Group" className="h-9 w-auto" />
           <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1">SmartWorkforce</p>
         </div>
 
@@ -216,7 +216,7 @@ export default function Login() {
           </form>
 
           <p className="mt-10 text-center text-xs text-navy-500 uppercase tracking-[0.11em]">
-            DE Webnet SmartWorkforce // Secured Access
+            Aquino Bistro Group SmartWorkforce // Secured Access
           </p>
         </div>
       </div>

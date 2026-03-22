@@ -161,7 +161,7 @@ export default function Layout({ children }) {
         {/* Brand */}
         <div className="px-5 pt-5 pb-4 border-b border-navy-500/30">
           <div className="flex items-center gap-2">
-            <img src={logo} alt="DE WEBNET" className="h-7 w-auto" />
+            <img src={logo} alt="Aquino Bistro Group" className="h-7 w-auto" />
             <span className="text-2xs text-navy-300 font-mono">v2.0</span>
           </div>
           <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1.5 font-medium">

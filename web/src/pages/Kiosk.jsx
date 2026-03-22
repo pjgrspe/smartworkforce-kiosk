@@ -126,7 +126,7 @@ function SetupScreen({ onDone }) {
         animate={{ opacity: 1, scale: 1 }}
         className="bg-navy-800 border border-navy-500 rounded-xl p-10 shadow-[0_24px_64px_rgba(3,7,13,0.8)] w-[420px] text-navy-50 text-center"
       >
-        <h1 className="text-3xl font-bold mb-1 tracking-tight">DE WEBNET Kiosk</h1>
+        <h1 className="text-3xl font-bold mb-1 tracking-tight">Aquino Bistro Group Kiosk</h1>
         <p className="text-navy-300 mb-8 text-sm">Enter your company code to start</p>
         {err && <p className="text-signal-danger text-sm mb-4">{err}</p>}
         <input
@@ -636,7 +636,7 @@ export default function Kiosk() {
       <header className="flex items-center justify-between px-6 py-3.5 bg-navy-800 border-b border-navy-500 shrink-0">
         <div className="flex items-center gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-accent-400 leading-none">DE WEBNET</h1>
+            <h1 className="text-2xl font-bold text-accent-400 leading-none">Aquino Bistro Group</h1>
             <span className="label-caps">Attendance Kiosk</span>
           </div>
           <div className="flex items-center gap-2 bg-navy-700 px-3 py-1 rounded-full border border-navy-500">

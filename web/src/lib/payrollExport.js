@@ -31,7 +31,7 @@ export function resolvePayslipSettings(tenant) {
   const configured = mergeNested(DEFAULT_PAYSLIP_SETTINGS, tenant?.settings?.payslip)
   return {
     ...configured,
-    companyDisplayName: configured.companyDisplayName || tenant?.name || 'DE WEBNET Payroll',
+    companyDisplayName: configured.companyDisplayName || tenant?.name || 'Aquino Bistro Group Payroll',
     companyAddressLine: configured.companyAddressLine || tenant?.address || '',
   }
 }
