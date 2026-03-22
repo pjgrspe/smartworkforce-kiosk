@@ -3,7 +3,7 @@
  */
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAuth } from '../contexts/AuthContext'
-import { getUsers, createUser, updateUser, deleteUser, getBranches, getEmployees, verifyPassword } from '../config/api'
+import { getUsers, createUser, updateUser, deleteUser, getBranches, getEmployees, getTenants, verifyPassword } from '../config/api'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
 import Badge from '../components/ui/Badge'
 import Modal from '../components/ui/Modal'
@@ -29,7 +29,7 @@ const ROLE_VARIANT = {
   auditor:        'success',
 }
 
-const EMPTY = { email: '', firstName: '', lastName: '', role: 'employee', branchId: '', employeeId: '', password: '', isActive: true }
+const EMPTY = { email: '', firstName: '', lastName: '', role: 'employee', branchId: '', employeeId: '', tenantId: '', password: '', isActive: true }
 
 function SortIcon({ dir }) {
   if (!dir) return <span className="ml-1 text-navy-500">↕</span>
@@ -47,7 +47,7 @@ function useSortable(initial, initialDir = 'asc') {
 }
 
 // ── User Modal ────────────────────────────────────────────────────────
-function UserModal({ initial, branches, employees, currentUser, onClose, onSave }) {
+function UserModal({ initial, branches, employees, tenants, currentUser, onClose, onSave }) {
   const editing = !!initial?._id
   const initialForm = initial
     ? {
@@ -55,6 +55,7 @@ function UserModal({ initial, branches, employees, currentUser, onClose, onSave 
         ...initial,
         branchId: typeof initial.branchId === 'object' ? initial.branchId?._id || '' : initial.branchId || '',
         employeeId: typeof initial.employeeId === 'object' ? initial.employeeId?._id || '' : initial.employeeId || '',
+        tenantId: initial.tenantId || '',
         password: '',
       }
     : { ...EMPTY }
@@ -156,6 +157,13 @@ function UserModal({ initial, branches, employees, currentUser, onClose, onSave 
             {branches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
           </Select>
         </div>
+        {currentUser?.role === 'super_admin' && (
+          <Select label="Company (Tenant)" value={form.tenantId}
+            onChange={e => set('tenantId', e.target.value)}>
+            <option value="">— None —</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </Select>
+        )}
         {requiresEmployeeLink && (
           <Select label="Linked Employee *" value={form.employeeId}
             onChange={e => set('employeeId', e.target.value)}>
@@ -189,6 +197,7 @@ export default function Users() {
   const [users,    setUsers]    = useState([])
   const [branches, setBranches] = useState([])
   const [employees, setEmployees] = useState([])
+  const [tenants,  setTenants]  = useState([])
   const [loading,  setLoading]  = useState(true)
   const [search,   setSearch]   = useState('')
   const [modal,    setModal]    = useState(null)
@@ -212,6 +221,9 @@ export default function Users() {
     load()
     getBranches().then(r => setBranches(r?.data || [])).catch(() => {})
     getEmployees().then(r => setEmployees(r?.data || [])).catch(() => {})
+    if (user?.role === 'super_admin') {
+      getTenants().then(r => setTenants(r?.data || [])).catch(() => {})
+    }
   }, [load])
 
   useEffect(() => {
@@ -450,7 +462,9 @@ export default function Users() {
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
                 <p className="label-caps">Access Scope</p>
-                <p className="mt-2 text-xs text-navy-100 break-all">Tenant ID: {selectedUser.tenantId || '—'}</p>
+                <p className="mt-2 text-xs text-navy-100 break-all">
+                  Tenant: {tenants.find(t => t.id === selectedUser.tenantId)?.name || selectedUser.tenantId || '—'}
+                </p>
                 <p className="mt-1 text-xs text-navy-300 break-all">Branch ID: {(typeof selectedUser.branchId === 'object' ? selectedUser.branchId?._id : selectedUser.branchId) || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300 break-all">Employee Link ID: {(typeof selectedUser.employeeId === 'object' ? selectedUser.employeeId?._id : selectedUser.employeeId) || '—'}</p>
               </div>
@@ -485,6 +499,7 @@ export default function Users() {
           initial={modal === 'create' ? null : modal}
           branches={branches}
           employees={employees}
+          tenants={tenants}
           currentUser={user}
           onClose={() => setModal(null)}
           onSave={handleSave}
