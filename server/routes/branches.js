@@ -9,7 +9,13 @@ router.use(authenticate);
 router.get('/', async (req, res) => {
   try {
     const repo = getBranchRepository();
-    const branches = await repo.listBranches({ user: req.user });
+    // super_admin can pass ?tenantId= to fetch branches for a specific tenant
+    // (used by the user-management modal when assigning a user to a different tenant)
+    const user = { ...req.user };
+    if (req.user.role === 'super_admin' && req.query.tenantId) {
+      user.tenantId = req.query.tenantId;
+    }
+    const branches = await repo.listBranches({ user });
     return res.json({ data: branches });
   } catch (err) {
     return res.status(500).json({ error: err.message });

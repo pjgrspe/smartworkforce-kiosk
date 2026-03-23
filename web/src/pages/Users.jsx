@@ -63,6 +63,7 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
   const [oldPassword, setOldPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  const [tenantBranches, setTenantBranches] = useState(branches)
   const editingSelf = editing && initial?._id === currentUser?._id
 
   const branchLocked = !['super_admin', 'client_admin'].includes(currentUser?.role) && !!currentUser?.branchId
@@ -71,13 +72,18 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
     : ROLES.filter((role) => ['hr_payroll', 'branch_manager', 'employee', 'auditor'].includes(role.value))
   const requiresEmployeeLink = form.role === 'employee'
   const effectiveBranchId = branchLocked ? currentUser?.branchId : form.branchId
-  const visibleBranches = currentUser?.role === 'super_admin' && form.tenantId
-    ? branches.filter(b => b.tenantId === form.tenantId)
-    : branches
+  const visibleBranches = currentUser?.role === 'super_admin' ? tenantBranches : branches
   const visibleEmployees = employees.filter((employee) => {
     if (!effectiveBranchId) return true
     return String(employee.branchId) === String(effectiveBranchId)
   })
+
+  // When super_admin selects a tenant, fetch branches scoped to that tenant
+  useEffect(() => {
+    if (currentUser?.role !== 'super_admin') return
+    if (!form.tenantId) { setTenantBranches([]); return }
+    getBranches(form.tenantId).then(r => setTenantBranches(r?.data || [])).catch(() => setTenantBranches([]))
+  }, [form.tenantId, currentUser?.role])
 
   useEffect(() => {
     if (branchLocked) {

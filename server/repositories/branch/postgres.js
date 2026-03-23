@@ -23,7 +23,12 @@ async function listBranches({ user }) {
   let where = 'WHERE is_active = TRUE';
 
   if (user.role === 'super_admin') {
-    // super_admin sees all branches across all tenants
+    // super_admin scoped to a tenant (via X-Active-Tenant switcher) — filter to that tenant.
+    // Without a tenant override (tenantId is null) — return all branches for the modal dropdown.
+    if (user.tenantId) {
+      params.push(user.tenantId);
+      where += ` AND tenant_id = $${params.length}`;
+    }
   } else {
     params.push(user.tenantId);
     where += ` AND tenant_id = $${params.length}`;

@@ -153,7 +153,7 @@ export const getSyncStatus = (params = {}) => {
 }
 
 // ── Branches ─────────────────────────────────────────────────────
-export const getBranches   = ()          => request('GET',    '/branches')
+export const getBranches   = (tenantId)  => request('GET',    tenantId ? `/branches?tenantId=${tenantId}` : '/branches')
 export const createBranch  = (body)      => request('POST',   '/branches', body)
 export const updateBranch  = (id, body)  => request('PATCH',  `/branches/${id}`, body)
 export const deleteBranch  = (id)        => request('DELETE', `/branches/${id}`)
