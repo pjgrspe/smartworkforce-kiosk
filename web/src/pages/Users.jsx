@@ -149,6 +149,13 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
             onChange={e => setOldPassword(e.target.value)}
           />
         )}
+        {currentUser?.role === 'super_admin' && (
+          <Select label="Company (Tenant)" value={form.tenantId}
+            onChange={e => setForm(p => ({ ...p, tenantId: e.target.value, branchId: '' }))}>
+            <option value="">— None —</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </Select>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Select label="Role *" value={form.role}
             onChange={e => set('role', e.target.value)}>
@@ -160,13 +167,6 @@ function UserModal({ initial, branches, employees, tenants, currentUser, onClose
             {visibleBranches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
           </Select>
         </div>
-        {currentUser?.role === 'super_admin' && (
-          <Select label="Company (Tenant)" value={form.tenantId}
-            onChange={e => setForm(p => ({ ...p, tenantId: e.target.value, branchId: '' }))}>
-            <option value="">— None —</option>
-            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </Select>
-        )}
         {requiresEmployeeLink && (
           <Select label="Linked Employee *" value={form.employeeId}
             onChange={e => set('employeeId', e.target.value)}>
