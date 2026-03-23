@@ -5,6 +5,7 @@
  */
 
 const { getPool } = require('../config/postgres');
+const { getEmployeeDayOffRepository } = require('../repositories/employee-day-off');
 
 /** Parse "HH:mm" string → minutes from midnight */
 function timeStrToMinutes(str) {
@@ -114,6 +115,14 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
   );
   const holidays = holidayRes.rows;
 
+  const dayOffRepo = getEmployeeDayOffRepository();
+  const employeeDayOffs = await dayOffRepo.listForRange({
+    tenantId:   employee.tenantId,
+    employeeId: employee._id,
+    startDate:  new Date(cutoffStart),
+    endDate:    new Date(cutoffEnd),
+  });
+
   let schedule = null;
   if (employee.scheduleId) {
     const scheduleRes = await pool.query(
@@ -188,7 +197,11 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     const dateStr   = toManilaDateStr(d);
     const dayOfWeek = new Date(d).getDay(); // 0=Sun … 6=Sat
 
-    const isRestDay   = (schedule.restDays || []).includes(dayOfWeek);
+    const scheduleRestDay = (schedule.restDays || []).includes(dayOfWeek);
+    const dayOff          = employeeDayOffs.find(x => x.date === dateStr) || null;
+    const isFullDayOff    = dayOff?.type === 'full_day';
+    const isRestDay       = scheduleRestDay || isFullDayOff;
+
     const holiday     = holidays.find(h => toManilaDateStr(h.date) === dateStr);
     const isHoliday   = !!holiday;
     const holidayType = holiday?.type || null;
@@ -207,6 +220,33 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     const isAbsent     = !inLog && !isRestDay;
     const isMissingOut = !!inLog && !outLog;
 
+    // Compute effective schedule boundaries for partial day-offs
+    let effectiveStartMin = scheduledStartMin;
+    let effectiveEndMin   = scheduledEndMin;
+    let effectiveWork     = scheduledEffective;
+
+    if (dayOff && !isFullDayOff) {
+      const midpoint = Math.round((scheduledStartMin + scheduledEndMin) / 2);
+      if (dayOff.type === 'half_day_am') {
+        // Morning off — employee expected from midpoint onwards
+        effectiveStartMin = midpoint;
+        effectiveWork     = Math.max(0, scheduledEndMin - midpoint - Math.round(unpaidBreak / 2));
+      } else if (dayOff.type === 'half_day_pm') {
+        // Afternoon off — employee expected to leave at midpoint
+        effectiveEndMin = midpoint;
+        effectiveWork   = Math.max(0, midpoint - scheduledStartMin - Math.round(unpaidBreak / 2));
+      } else if (dayOff.type === 'custom') {
+        const offStart   = timeStrToMinutes(dayOff.startTime) ?? scheduledStartMin;
+        const offEnd     = timeStrToMinutes(dayOff.endTime)   ?? scheduledEndMin;
+        const offMinutes = Math.max(0, offEnd - offStart);
+        effectiveWork    = Math.max(0, scheduledEffective - offMinutes);
+        // If off covers the start of the shift, late measured from offEnd
+        if (offStart <= scheduledStartMin + grace) effectiveStartMin = offEnd;
+        // If off covers the end of the shift, undertime measured to offStart
+        if (offEnd >= scheduledEndMin)             effectiveEndMin   = offStart;
+      }
+    }
+
     let workedMinutes     = 0;
     let lateMinutes       = 0;
     let undertimeMinutes  = 0;
@@ -217,23 +257,23 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       const actualInMin  = toManilaMinutes(inLog.timestamp);
       const actualOutMin = toManilaMinutes(outLog.timestamp);
 
-      // Late
-      let late = Math.max(0, actualInMin - (scheduledStartMin + grace));
+      // Late (measured against effective start for the day)
+      let late = Math.max(0, actualInMin - (effectiveStartMin + grace));
       if (rounding > 0 && late > 0) {
         late = Math.ceil(late / rounding) * rounding;
       }
       lateMinutes = late;
 
-      // Undertime (only when there is an actual OUT)
-      undertimeMinutes = outLog ? Math.max(0, scheduledEndMin - actualOutMin) : 0;
+      // Undertime (measured against effective end for the day)
+      undertimeMinutes = outLog ? Math.max(0, effectiveEndMin - actualOutMin) : 0;
 
       // Worked (gross out-in minus unpaid break)
       let gross = actualOutMin - actualInMin;
       if (gross < 0) gross += 1440; // midnight crossover
       workedMinutes = Math.max(0, gross - unpaidBreak);
 
-      // Overtime
-      overtimeMinutes = Math.max(0, workedMinutes - scheduledEffective);
+      // Overtime (against effective worked hours for the day)
+      overtimeMinutes = Math.max(0, workedMinutes - effectiveWork);
 
       // Night diff
       nightDiffMinutes = calcNightDiffMinutes(actualInMin, actualOutMin, ndStart, ndEnd);
@@ -251,7 +291,8 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       undertimeMinutes,
       overtimeMinutes,
       nightDiffMinutes,
-      logCount: dayLogs.length
+      logCount: dayLogs.length,
+      dayOff:   dayOff ? { type: dayOff.type, reason: dayOff.reason, startTime: dayOff.startTime, endTime: dayOff.endTime } : null,
     });
   }
 

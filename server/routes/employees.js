@@ -7,6 +7,7 @@ const router    = express.Router();
 const { authenticate, authorize } = require('../middleware/auth');
 const logger    = require('../utils/logger');
 const { getEmployeeRepository } = require('../repositories/employee');
+const { getEmployeeDayOffRepository } = require('../repositories/employee-day-off');
 const { writeAuditLog } = require('../services/audit');
 
 function getDuplicateEmployeeMessage(employeeCode) {
@@ -274,6 +275,68 @@ router.delete('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), as
   } catch (err) {
     logger.error('DELETE /employees/:id:', err.message);
     return res.status(err?.code === 'NOT_IMPLEMENTED' ? 501 : 500).json({ error: err.message });
+  }
+});
+
+// ── Per-employee day-offs ────────────────────────────────────────────
+
+// GET /api/employees/:id/day-offs
+router.get('/:id/day-offs', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
+  try {
+    const repo = getEmployeeDayOffRepository();
+    const items = await repo.listForEmployee({
+      employeeId: req.params.id,
+      tenantId:   req.user.tenantId,
+      from:       req.query.from || null,
+      to:         req.query.to   || null,
+    });
+    return res.json({ data: items });
+  } catch (err) {
+    logger.error('GET /employees/:id/day-offs:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/employees/:id/day-offs
+router.post('/:id/day-offs', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
+  try {
+    const { date, type, startTime, endTime, reason } = req.body;
+    if (!date) return res.status(400).json({ error: 'date is required' });
+    const VALID_TYPES = ['full_day', 'half_day_am', 'half_day_pm', 'custom'];
+    if (type && !VALID_TYPES.includes(type)) {
+      return res.status(400).json({ error: `type must be one of: ${VALID_TYPES.join(', ')}` });
+    }
+    if (type === 'custom' && (!startTime || !endTime)) {
+      return res.status(400).json({ error: 'startTime and endTime are required for custom type' });
+    }
+    const repo = getEmployeeDayOffRepository();
+    const item = await repo.upsert({
+      tenantId:   req.user.tenantId,
+      employeeId: req.params.id,
+      date,
+      type:       type || 'full_day',
+      startTime:  startTime || null,
+      endTime:    endTime   || null,
+      reason:     reason    || null,
+      createdBy:  req.user.sub,
+    });
+    return res.status(201).json({ data: item });
+  } catch (err) {
+    logger.error('POST /employees/:id/day-offs:', err.message);
+    return res.status(400).json({ error: err.message });
+  }
+});
+
+// DELETE /api/employees/:id/day-offs/:dayOffId
+router.delete('/:id/day-offs/:dayOffId', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
+  try {
+    const repo = getEmployeeDayOffRepository();
+    const deleted = await repo.remove({ id: req.params.dayOffId, tenantId: req.user.tenantId });
+    if (!deleted) return res.status(404).json({ error: 'Not found' });
+    return res.json({ message: 'Deleted' });
+  } catch (err) {
+    logger.error('DELETE /employees/:id/day-offs/:dayOffId:', err.message);
+    return res.status(500).json({ error: err.message });
   }
 });
 

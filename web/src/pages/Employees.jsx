@@ -7,6 +7,7 @@ import {
   getEmployees, createEmployee, updateEmployee, deleteEmployee,
   getBranches, getDepartments, getSchedules, enrollFace, verifyPassword,
   uploadEmployeeDocument, deleteEmployeeDocument, downloadEmployeeDocument,
+  getEmployeeDayOffs, createEmployeeDayOff, deleteEmployeeDayOff,
 } from '../config/api'
 import { useAuth } from '../contexts/AuthContext'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
@@ -519,6 +520,10 @@ export default function Employees() {
   const [reauthLoading, setReauthLoading] = useState(false)
   const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
+  const [dayOffs, setDayOffs] = useState([])
+  const [dayOffForm, setDayOffForm] = useState({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
+  const [dayOffError, setDayOffError] = useState('')
+  const [dayOffSaving, setDayOffSaving] = useState(false)
 
   const [reportsToSearch, setReportsToSearch] = useState('')
   const [reportsToOpen, setReportsToOpen] = useState(false)
@@ -575,6 +580,42 @@ export default function Employees() {
     }
   }
 
+  const handleAddDayOff = async () => {
+    if (!dayOffForm.date) { setDayOffError('Date is required.'); return }
+    if (dayOffForm.type === 'custom' && (!dayOffForm.startTime || !dayOffForm.endTime)) {
+      setDayOffError('Start and end time are required for custom type.'); return
+    }
+    setDayOffSaving(true); setDayOffError('')
+    try {
+      const res = await createEmployeeDayOff(selectedEmployee._id, {
+        date:      dayOffForm.date,
+        type:      dayOffForm.type,
+        startTime: dayOffForm.type === 'custom' ? dayOffForm.startTime : null,
+        endTime:   dayOffForm.type === 'custom' ? dayOffForm.endTime   : null,
+        reason:    dayOffForm.reason || null,
+      })
+      setDayOffs(prev => {
+        const idx = prev.findIndex(x => x.date === res.data.date)
+        if (idx >= 0) { const next = [...prev]; next[idx] = res.data; return next }
+        return [...prev, res.data].sort((a, b) => a.date.localeCompare(b.date))
+      })
+      setDayOffForm({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
+    } catch (err) {
+      setDayOffError(err.message || 'Failed to save.')
+    } finally {
+      setDayOffSaving(false)
+    }
+  }
+
+  const handleRemoveDayOff = async (id) => {
+    try {
+      await deleteEmployeeDayOff(selectedEmployee._id, id)
+      setDayOffs(prev => prev.filter(x => x.id !== id))
+    } catch (err) {
+      setDayOffError(err.message || 'Failed to delete.')
+    }
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -597,6 +638,13 @@ export default function Employees() {
     const next = employees.find((employee) => employee._id === selectedEmployee._id)
     if (next) setSelectedEmployee(next)
   }, [employees, selectedEmployee?._id])
+
+  useEffect(() => {
+    if (!selectedEmployee?._id) { setDayOffs([]); return }
+    getEmployeeDayOffs(selectedEmployee._id).then(r => setDayOffs(r?.data || [])).catch(() => setDayOffs([]))
+    setDayOffForm({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
+    setDayOffError('')
+  }, [selectedEmployee?._id])
 
   useEffect(() => { load() }, [load])
 
@@ -1033,6 +1081,84 @@ export default function Employees() {
                     })}
                   </div>
                 )}
+              </div>
+
+              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3 md:col-span-2 xl:col-span-3">
+                <p className="label-caps mb-3">Day Offs</p>
+                {dayOffError && (
+                  <p className="mb-2 text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">{dayOffError}</p>
+                )}
+                {/* Existing day-offs */}
+                {dayOffs.length > 0 && (
+                  <div className="mb-3 space-y-1.5">
+                    {dayOffs.map(d => {
+                      const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
+                      const detail = d.type === 'custom' ? ` (${d.startTime}–${d.endTime})` : ''
+                      return (
+                        <div key={d.id} className="flex items-center justify-between gap-3 text-2xs">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-navy-200">{d.date}</span>
+                            <span className="text-accent">{TYPE_LABELS[d.type] || d.type}{detail}</span>
+                            {d.reason && <span className="text-navy-400 truncate">— {d.reason}</span>}
+                          </div>
+                          <button onClick={() => handleRemoveDayOff(d.id)}
+                            className="text-signal-danger/60 hover:text-signal-danger transition-colors shrink-0">
+                            Remove
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+                {/* Add form */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
+                  <div>
+                    <p className="label-caps mb-1">Date *</p>
+                    <input type="date" className="field-base text-xs"
+                      value={dayOffForm.date} onChange={e => setDayOffForm(p => ({ ...p, date: e.target.value }))} />
+                  </div>
+                  <div>
+                    <p className="label-caps mb-1">Type</p>
+                    <select className="field-base text-xs" value={dayOffForm.type}
+                      onChange={e => setDayOffForm(p => ({ ...p, type: e.target.value, startTime: '', endTime: '' }))}>
+                      <option value="full_day">Full Day</option>
+                      <option value="half_day_am">Half Day AM</option>
+                      <option value="half_day_pm">Half Day PM</option>
+                      <option value="custom">Custom Time</option>
+                    </select>
+                  </div>
+                  {dayOffForm.type === 'custom' ? (
+                    <>
+                      <div>
+                        <p className="label-caps mb-1">Off From</p>
+                        <input type="time" className="field-base text-xs"
+                          value={dayOffForm.startTime} onChange={e => setDayOffForm(p => ({ ...p, startTime: e.target.value }))} />
+                      </div>
+                      <div>
+                        <p className="label-caps mb-1">Off Until</p>
+                        <input type="time" className="field-base text-xs"
+                          value={dayOffForm.endTime} onChange={e => setDayOffForm(p => ({ ...p, endTime: e.target.value }))} />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="md:col-span-2">
+                      <p className="label-caps mb-1">Reason (optional)</p>
+                      <input className="field-base text-xs" placeholder="e.g. Rotating rest day"
+                        value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
+                    </div>
+                  )}
+                </div>
+                {dayOffForm.type === 'custom' && (
+                  <div className="mt-2">
+                    <p className="label-caps mb-1">Reason (optional)</p>
+                    <input className="field-base text-xs" placeholder="e.g. Medical appointment"
+                      value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
+                  </div>
+                )}
+                <Button type="button" variant="secondary" size="sm" className="mt-3"
+                  onClick={handleAddDayOff} loading={dayOffSaving}>
+                  + Add Day Off
+                </Button>
               </div>
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">

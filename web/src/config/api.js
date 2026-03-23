@@ -117,6 +117,9 @@ export const deleteEmployee  = (id)              => request('DELETE', `/employee
 export const enrollFace               = (id, descriptors) => request('PATCH',  `/employees/${id}/enroll-face`, { descriptors })
 export const uploadEmployeeDocument   = (id, doc)         => request('POST',   `/employees/${id}/documents`, doc)
 export const deleteEmployeeDocument   = (id, docId)       => request('DELETE', `/employees/${id}/documents/${docId}`)
+export const getEmployeeDayOffs       = (id, params = {}) => request('GET',    `/employees/${id}/day-offs${Object.keys(params).length ? '?' + new URLSearchParams(params) : ''}`)
+export const createEmployeeDayOff     = (id, body)        => request('POST',   `/employees/${id}/day-offs`, body)
+export const deleteEmployeeDayOff     = (id, dayOffId)    => request('DELETE', `/employees/${id}/day-offs/${dayOffId}`)
 export async function downloadEmployeeDocument(id, docId, fileName) {
   const headers = {}
   const token = getToken()
