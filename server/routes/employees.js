@@ -200,8 +200,8 @@ router.post('/:id/documents', authorize('super_admin', 'client_admin', 'hr_payro
       return res.status(400).json({ error: 'Only JPEG, PNG, WebP, and PDF files are allowed' });
     }
 
-    if (size > 5 * 1024 * 1024) {
-      return res.status(400).json({ error: 'File must be 5 MB or smaller' });
+    if (size > 2 * 1024 * 1024) {
+      return res.status(400).json({ error: 'File must be 2 MB or smaller' });
     }
 
     const employeeRepo = getEmployeeRepository();

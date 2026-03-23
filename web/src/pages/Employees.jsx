@@ -538,8 +538,8 @@ export default function Employees() {
       setDocError('Only JPEG, PNG, WebP, and PDF files are allowed.')
       return
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setDocError('File must be 5 MB or smaller.')
+    if (file.size > 2 * 1024 * 1024) {
+      setDocError('File must be 2 MB or smaller.')
       return
     }
 
