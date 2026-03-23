@@ -234,9 +234,18 @@ router.patch('/:id', authorize('super_admin', 'client_admin'), async (req, res) 
     if (!existingUser) return res.status(404).json({ error: 'Not found' });
 
     const updates = { ...req.body };
-    delete updates.email; // email is immutable once set
     const { oldPassword } = updates;
     delete updates.oldPassword;
+
+    // Validate and normalise email if provided
+    if (Object.prototype.hasOwnProperty.call(updates, 'email')) {
+      const cleanEmail = String(updates.email || '').toLowerCase().trim();
+      if (!cleanEmail) return res.status(400).json({ error: 'Email cannot be empty' });
+      const duplicate = await userRepo.findByEmailExcludingId(cleanEmail, req.params.id);
+      if (duplicate) return res.status(409).json({ error: 'Email already in use by another account' });
+      updates.email = cleanEmail;
+    }
+
     if (updates.password) {
       if (req.params.id === req.user.sub) {
         if (!oldPassword) return res.status(400).json({ error: 'Current password is required to change your own password' });

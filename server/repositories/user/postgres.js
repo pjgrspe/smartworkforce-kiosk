@@ -270,6 +270,7 @@ async function updateUserById(id, updates) {
   const next = {
     tenantId: Object.prototype.hasOwnProperty.call(updates, 'tenantId') ? updates.tenantId : existing.tenantId,
     branchId: Object.prototype.hasOwnProperty.call(updates, 'branchId') ? updates.branchId : existing.branchId,
+    email: Object.prototype.hasOwnProperty.call(updates, 'email') ? updates.email : existing.email,
     firstName: Object.prototype.hasOwnProperty.call(updates, 'firstName') ? updates.firstName : existing.firstName,
     lastName: Object.prototype.hasOwnProperty.call(updates, 'lastName') ? updates.lastName : existing.lastName,
     role: Object.prototype.hasOwnProperty.call(updates, 'role') ? updates.role : existing.role,
@@ -283,17 +284,18 @@ async function updateUserById(id, updates) {
       UPDATE users
       SET tenant_id = $2,
           branch_id = $3,
-          first_name = $4,
-          last_name = $5,
-          role = $6,
-          employee_id = $7,
-          password_hash = $8,
-          is_active = $9,
+          email = $4,
+          first_name = $5,
+          last_name = $6,
+          role = $7,
+          employee_id = $8,
+          password_hash = $9,
+          is_active = $10,
           updated_at = NOW()
       WHERE id = $1
       RETURNING *
     `,
-    [id, next.tenantId, next.branchId, next.firstName, next.lastName, next.role, next.employeeId, next.passwordHash, next.isActive],
+    [id, next.tenantId, next.branchId, next.email, next.firstName, next.lastName, next.role, next.employeeId, next.passwordHash, next.isActive],
   );
 
   const updated = mapUserRow(rows[0]);
