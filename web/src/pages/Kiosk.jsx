@@ -19,33 +19,15 @@ import ThemeToggle from '../components/ui/ThemeToggle'
 // ── Constants ─────────────────────────────────────────────────────────────────
 // VITE_MODEL_URL lets the kiosk-service point to locally cached model weights
 // so the kiosk works offline. Falls back to jsDelivr CDN.
-const CDN_WEIGHTS      = import.meta.env.VITE_MODEL_URL || 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
-const CONFIRM_FRAMES   = 4        // consecutive matching frames required before confirming
-const MATCH_THRESHOLD  = 0.48     // max Euclidean distance for a valid match
-const MARGIN_MIN       = 0.07     // min gap between best and 2nd-best match (ambiguity guard)
-const EAR_BLINK_THRESH = 0.26     // eye aspect ratio below this counts as closed
-const EAR_CONSEC_MIN   = 1        // frames eye must be closed to register a blink
-const BLINKS_NEEDED    = 2        // number of distinct blinks required for liveness
-const NOSE_MOTION_MIN  = 3.5      // min cumulative nose-tip pixel movement required
-const LIVENESS_WINDOW  = 120      // max frames to wait for liveness (~6 s at 20fps)
-const DETECT_INTERVAL  = 100      // ms between detection frames (~10 fps, stable)
-const AUTO_RESET_MS    = 15_000   // auto-dismiss confirmed match after 15 s
-const SUCCESS_HOLD_MS  = 3_500    // success screen display duration
-
-// ── Eye Aspect Ratio (liveness / anti-photo spoofing) ────────────────────────
-// EAR = (vertical distance avg) / (horizontal distance)
-// A real face blinks; a printed photo never will.
-function eucDist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
-function eyeEAR(pts, p1, p2, p3, p4, p5, p6) {
-  return (eucDist(pts[p2], pts[p6]) + eucDist(pts[p3], pts[p5])) / (2 * eucDist(pts[p1], pts[p4]))
-}
-function calcEAR(landmarks) {
-  const pts = landmarks.positions
-  // Left eye: 36-41, Right eye: 42-47 (68-point model)
-  const leftEAR  = eyeEAR(pts, 36, 37, 38, 39, 40, 41)
-  const rightEAR = eyeEAR(pts, 42, 43, 44, 45, 46, 47)
-  return (leftEAR + rightEAR) / 2
-}
+const CDN_WEIGHTS     = import.meta.env.VITE_MODEL_URL || 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
+const CONFIRM_FRAMES  = 8         // consecutive matching frames required before confirming (~800ms)
+const MATCH_THRESHOLD = 0.50      // max Euclidean distance for a valid match
+const MARGIN_MIN      = 0.06      // min gap between best and 2nd-best match (ambiguity guard)
+const MIN_FACE_SIZE   = 0.15      // face height must be ≥ 15% of video height (too far = unreliable)
+const CONF_BUF_SIZE   = 5         // frames to average confidence over for stability
+const DETECT_INTERVAL = 80        // ms between detection frames (~12 fps)
+const AUTO_RESET_MS   = 15_000    // auto-dismiss confirmed match after 15 s
+const SUCCESS_HOLD_MS = 2_000     // success screen display duration (short — next person lines up)
 
 const ATTENDANCE_PUNCHES = [
   { key: 'IN',  label: 'Time In',  bg: 'bg-signal-success hover:opacity-90' },
@@ -188,12 +170,10 @@ export default function Kiosk() {
   const streamRef     = useRef(null)
   const phaseRef      = useRef('loading')
   const matchBufRef   = useRef({ id: null, count: 0 })
-  const cooldownRef   = useRef(0)
   const resetTimerRef = useRef(null)
   const employeesRef  = useRef([])   // mirror of employees state for use in RAF
-  const meanDescRef   = useRef({})   // employeeId → Float32Array (for margin check)
-  // Liveness state: track blink detection per match attempt
-  const livenessRef   = useRef({ earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 })
+  const allDescsRef   = useRef({})   // employeeId → Float32Array[] (all enrollment descriptors, for margin check)
+  const confBufRef    = useRef([])   // rolling confidence buffer for averaging
 
   const [cameras,    setCameras]    = useState([])
   const [selCam,     setSelCam]     = useState('')
@@ -288,16 +268,12 @@ export default function Kiosk() {
         const labeled = emps
           .filter(e => e.faceData?.faceApiDescriptors?.length > 0)
           .map(e => {
-            const descs = e.faceData.faceApiDescriptors
-            // Compute the mean of all enrollment descriptors.
-            // A single centroid vector is more stable than matching against individual samples.
-            const mean = new Float32Array(128)
-            for (const d of descs) {
-              for (let i = 0; i < 128; i++) mean[i] += d[i]
-            }
-            for (let i = 0; i < 128; i++) mean[i] /= descs.length
-            meanDescRef.current[e._id] = mean   // store for margin check
-            return new faceapi.LabeledFaceDescriptors(e._id, [mean])
+            // Use ALL enrollment descriptors (not just the mean).
+            // FaceMatcher will return the minimum distance to any stored sample,
+            // which is more robust to pose variation and different enrollment sessions.
+            const floatDescs = e.faceData.faceApiDescriptors.map(d => new Float32Array(d))
+            allDescsRef.current[e._id] = floatDescs   // store for margin check
+            return new faceapi.LabeledFaceDescriptors(e._id, floatDescs)
           })
 
         if (labeled.length === 0) {
@@ -413,7 +389,7 @@ export default function Kiosk() {
     return () => cancelAnimationFrame(renderRafRef.current)
   }, [phase, renderLoop])
 
-  // ── Detection loop — runs at ~10fps via setTimeout, NO canvas drawing ─────
+  // ── Detection loop — runs at ~12fps via setTimeout, NO canvas drawing ────────
   const detectLoop = useCallback(async () => {
     const video   = videoRef.current
     const canvas  = canvasRef.current
@@ -422,68 +398,49 @@ export default function Kiosk() {
     const schedule = () => { rafRef.current = setTimeout(detectLoop, DETECT_INTERVAL) }
 
     if (!video || !canvas || !matcher || video.readyState < 2) { schedule(); return }
-    if (Date.now() < cooldownRef.current)                       { schedule(); return }
 
     const p = phaseRef.current
-    if (['punching', 'success', 'fail'].includes(p))            { schedule(); return }
+    if (['punching', 'success', 'fail'].includes(p)) { schedule(); return }
 
     const faceapi = await getFaceApi()
     const displaySize = { width: video.videoWidth, height: video.videoHeight }
     faceapi.matchDimensions(canvas, displaySize)
 
+    // Higher inputSize → better accuracy on small/angled faces
     const detection = await faceapi
-      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.35, inputSize: 416 }))
+      .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.3, inputSize: 512 }))
       .withFaceLandmarks(true)
       .withFaceDescriptor()
 
-    const LERP  = 0.4
-    const GRACE = 20
+    const LERP  = 0.35
+    const GRACE = 15
 
     if (detection) {
-      const resized   = faceapi.resizeResults(detection, displaySize)
-      const box       = resized.detection.box
-      const bestMatch = matcher.findBestMatch(detection.descriptor)
-      const isKnown   = bestMatch.label !== 'unknown'
+      const resized = faceapi.resizeResults(detection, displaySize)
+      const box     = resized.detection.box
 
-      // ── Margin check: reject if 2nd-closest employee is too similar ──────
+      // ── Face size guard: reject if person is too far from camera ──────────
+      const faceRatio = box.height / (displaySize.height || 1)
+      const faceBigEnough = faceRatio >= MIN_FACE_SIZE
+
+      const bestMatch = faceBigEnough ? matcher.findBestMatch(detection.descriptor) : null
+      const isKnown   = faceBigEnough && bestMatch?.label !== 'unknown'
+
+      // ── Margin check: reject if 2nd-closest employee is too similar ───────
+      // Uses all per-employee descriptors for the most accurate distance comparison.
       let marginOk = true
       if (isKnown) {
-        const descMap = meanDescRef.current
-        const dists = Object.entries(descMap)
-          .map(([id, d]) => ({ id, dist: faceapi.euclideanDistance(detection.descriptor, d) }))
-          .sort((a, b) => a.dist - b.dist)
-        if (dists.length >= 2 && (dists[1].dist - dists[0].dist) < MARGIN_MIN) {
+        const allDescs = allDescsRef.current
+        const empDists = Object.entries(allDescs).map(([id, descs]) => ({
+          id,
+          dist: Math.min(...descs.map(d => faceapi.euclideanDistance(detection.descriptor, d))),
+        })).sort((a, b) => a.dist - b.dist)
+        if (empDists.length >= 2 && (empDists[1].dist - empDists[0].dist) < MARGIN_MIN) {
           marginOk = false
         }
       }
 
-      // ── Liveness: EAR blink + nose motion ───────────────────────────────
-      const ear  = detection.landmarks ? calcEAR(detection.landmarks) : 1
-      const nose = detection.landmarks ? detection.landmarks.positions[30] : null
-      if (isKnown && marginOk) {
-        const lv = livenessRef.current
-        if (ear < EAR_BLINK_THRESH) {
-          lv.earClosed++
-          if (lv.earClosed >= EAR_CONSEC_MIN && lv.eyeWasOpen) {
-            lv.blinkCount++
-            lv.eyeWasOpen = false
-          }
-        } else {
-          lv.earClosed  = 0
-          lv.eyeWasOpen = true
-        }
-        if (nose && lv.nosePrev) lv.noseMotion += eucDist(nose, lv.nosePrev)
-        lv.nosePrev = nose
-        lv.frameCount++
-        if (lv.frameCount > LIVENESS_WINDOW) {
-          matchBufRef.current = { id: null, count: 0 }
-          livenessRef.current = { earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 }
-        }
-      }
-
-      const lv         = livenessRef.current
-      const blinkReady = lv.blinkCount >= BLINKS_NEEDED && lv.noseMotion >= NOSE_MOTION_MIN
-      const color      = isKnown && marginOk ? '#22c55e' : '#3b82f6'
+      const color = isKnown && marginOk ? '#22c55e' : faceBigEnough ? '#3b82f6' : '#f59e0b'
 
       // Lerp smoothed box toward real detection (render loop reads this every frame)
       const sb = smoothBoxRef.current
@@ -500,32 +457,47 @@ export default function Kiosk() {
       }
 
       if (isKnown && marginOk) {
-        const empId      = bestMatch.label
-        const confidence = 1 - bestMatch.distance
-        if (matchBufRef.current.id === empId) matchBufRef.current.count++
-        else {
+        const empId     = bestMatch.label
+        const framConf  = 1 - bestMatch.distance
+
+        if (matchBufRef.current.id === empId) {
+          matchBufRef.current.count++
+        } else {
           matchBufRef.current = { id: empId, count: 1 }
-          livenessRef.current = { earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 }
+          confBufRef.current  = []
         }
-        if (matchBufRef.current.count >= CONFIRM_FRAMES && blinkReady && p === 'running') {
+
+        // Rolling confidence average for stability
+        confBufRef.current.push(framConf)
+        if (confBufRef.current.length > CONF_BUF_SIZE) confBufRef.current.shift()
+        const avgConfidence = confBufRef.current.reduce((s, v) => s + v, 0) / confBufRef.current.length
+
+        if (matchBufRef.current.count >= CONFIRM_FRAMES && p === 'running') {
           const emp  = employeesRef.current.find(e => e._id === empId)
           const name = emp ? `${emp.firstName} ${emp.lastName}` : empId
-          setConfirmed({ id: empId, name, confidence })
+          setConfirmed({ id: empId, name, confidence: avgConfidence })
           setPhaseSync('confirmed')
         }
       } else {
-        matchBufRef.current = { id: null, count: 0 }
-        livenessRef.current = { earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 }
-        if (p === 'confirmed') { setConfirmed(null); setPhaseSync('running') }
+        if (matchBufRef.current.id !== null) {
+          matchBufRef.current = { id: null, count: 0 }
+          confBufRef.current  = []
+        }
+        if (!faceBigEnough) {
+          // Don't dismiss a confirmed match just because they stepped back briefly
+          if (p !== 'confirmed') { /* no-op */ }
+        } else if (p === 'confirmed') {
+          setConfirmed(null); setPhaseSync('running')
+        }
       }
     } else {
-      // No detection — increment miss counter; clear only after GRACE misses
+      // No face detected — grace period before clearing state
       if (smoothBoxRef.current) {
         smoothBoxRef.current.miss++
         if (smoothBoxRef.current.miss > GRACE) {
           smoothBoxRef.current = null
-          matchBufRef.current = { id: null, count: 0 }
-          livenessRef.current = { earClosed: 0, blinkCount: 0, eyeWasOpen: true, nosePrev: null, noseMotion: 0, frameCount: 0 }
+          matchBufRef.current  = { id: null, count: 0 }
+          confBufRef.current   = []
           if (p === 'confirmed') { setConfirmed(null); setPhaseSync('running') }
         }
       }
@@ -592,10 +564,9 @@ export default function Kiosk() {
         confidenceScore: confirmed.confidence,
       })
       setRecent(prev => [log, ...prev].slice(0, 15))
-      cooldownRef.current = Date.now() + SUCCESS_HOLD_MS + 1500
       setPhaseSync('success')
       setTimeout(() => {
-        setConfirmed(null); matchBufRef.current = { id: null, count: 0 }
+        setConfirmed(null); matchBufRef.current = { id: null, count: 0 }; confBufRef.current = []
         setPhaseSync('running')
         rafRef.current = setTimeout(detectLoop, DETECT_INTERVAL)
       }, SUCCESS_HOLD_MS)
@@ -603,7 +574,7 @@ export default function Kiosk() {
       setPunchError(err.message || 'Failed to record. Please try again.')
       setPhaseSync('fail')
       setTimeout(() => {
-        setConfirmed(null); matchBufRef.current = { id: null, count: 0 }
+        setConfirmed(null); matchBufRef.current = { id: null, count: 0 }; confBufRef.current = []
         setPunchError('')
         setPhaseSync('running')
         rafRef.current = setTimeout(detectLoop, DETECT_INTERVAL)
@@ -707,10 +678,10 @@ export default function Kiosk() {
 
               {phase === 'running' && (
                 <p className="absolute bottom-4 left-0 right-0 text-center text-sm px-4">
-                  {matchBufRef.current.id && livenessRef.current.blinkCount < BLINKS_NEEDED
-                    ? <span className="text-signal-warning animate-pulse font-semibold">Blink twice to verify ({livenessRef.current.blinkCount}/{BLINKS_NEEDED})</span>
-                    : matchBufRef.current.id && livenessRef.current.noseMotion < NOSE_MOTION_MIN
-                    ? <span className="text-signal-warning animate-pulse font-semibold">Move slightly to verify</span>
+                  {matchBufRef.current.id
+                    ? <span className="text-signal-warning animate-pulse font-semibold">
+                        Hold still... ({Math.min(matchBufRef.current.count, CONFIRM_FRAMES)}/{CONFIRM_FRAMES})
+                      </span>
                     : <span className="text-navy-400">Look at the camera</span>}
                 </p>
               )}
