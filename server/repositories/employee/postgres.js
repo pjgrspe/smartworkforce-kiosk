@@ -28,6 +28,7 @@ function mapEmployeeRow(row) {
     scheduleId: row.schedule_id,
     documents: (row.documents || []).map(({ data: _d, ...meta }) => meta),
     reportsToId: row.reports_to || null,
+    leaveConfig: row.leave_config || {},
     isActive: row.is_active,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -69,6 +70,7 @@ function mapCreateOrUpdatePayload(payload) {
     faceData: payload.faceData || {},
     scheduleId: payload.scheduleId || null,
     reportsToId: payload.reportsToId || null,
+    leaveConfig: payload.leaveConfig != null ? payload.leaveConfig : {},
     isActive: payload.isActive == null ? true : Boolean(payload.isActive),
     createdBy: payload.createdBy || null,
   };
@@ -281,12 +283,13 @@ async function createEmployee({ user, payload }) {
         schedule_id,
         reports_to,
         is_active,
-        created_by
+        created_by,
+        leave_config
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
         $11, $12, $13, $14, $15, $16, $17, $18, $19,
-        $20, $21, $22, $23
+        $20, $21, $22, $23, $24
       )
       RETURNING *
     `,
@@ -314,6 +317,7 @@ async function createEmployee({ user, payload }) {
       mapped.reportsToId,
       mapped.isActive,
       mapped.createdBy,
+      mapped.leaveConfig,
     ],
   );
 
@@ -369,9 +373,10 @@ async function updateEmployee({ user, id, patch }) {
         schedule_id = $20,
         reports_to = $21,
         is_active = $22,
+        leave_config = $23,
         updated_at = NOW()
       WHERE id = $1
-        AND tenant_id = $23
+        AND tenant_id = $24
       RETURNING *
     `,
     [
@@ -397,6 +402,7 @@ async function updateEmployee({ user, id, patch }) {
       mapped.scheduleId,
       mapped.reportsToId,
       mapped.isActive,
+      mapped.leaveConfig,
       user.tenantId,
     ],
   );

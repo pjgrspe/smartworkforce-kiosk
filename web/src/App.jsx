@@ -8,6 +8,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { WebSocketProvider } from './contexts/WebSocketContext'
 import { ThemeProvider } from './contexts/ThemeContext'
 import { TenantProvider } from './contexts/TenantContext'
+import { BrandingProvider } from './contexts/BrandingContext'
 import Layout from './components/Layout'
 import SensitiveAccessGate from './components/SensitiveAccessGate'
 import Spinner from './components/ui/Spinner'
@@ -19,6 +20,7 @@ import Branches from './pages/Branches'
 import Schedules from './pages/Schedules'
 import Attendance from './pages/Attendance'
 import Corrections from './pages/Corrections'
+import Leaves from './pages/Leaves'
 import PayrollSalary from './pages/PayrollSalary'
 import PayrollHolidays from './pages/PayrollHolidays'
 import PayrollSettings from './pages/PayrollSettings'
@@ -89,6 +91,9 @@ function AppRoutes() {
       <Route path="/corrections" element={
         <AdminPage roles={['super_admin','client_admin','hr_payroll','branch_manager','auditor']}><Corrections /></AdminPage>
       } />
+      <Route path="/leaves" element={
+        <AdminPage><Leaves /></AdminPage>
+      } />
       <Route path="/payroll/salary" element={
         <AdminPage roles={['super_admin','client_admin','hr_payroll']}>{withSensitiveAccess(<PayrollSalary />)}</AdminPage>
       } />
@@ -123,13 +128,15 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrowserRouter>
-        <AuthProvider>
-          <TenantProvider>
-            <WebSocketProvider>
-              <AppRoutes />
-            </WebSocketProvider>
-          </TenantProvider>
-        </AuthProvider>
+        <BrandingProvider>
+          <AuthProvider>
+            <TenantProvider>
+              <WebSocketProvider>
+                <AppRoutes />
+              </WebSocketProvider>
+            </TenantProvider>
+          </AuthProvider>
+        </BrandingProvider>
       </BrowserRouter>
     </ThemeProvider>
   )

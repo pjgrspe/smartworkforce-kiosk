@@ -33,6 +33,7 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '20mb' }));
 
+app.use('/api/public',      require('./routes/public'));
 app.use('/api/auth',        require('./routes/auth'));
 app.use('/api/employees',   require('./routes/employees'));
 app.use('/api/attendance',  require('./routes/attendance'));
@@ -43,6 +44,7 @@ app.use('/api/users',       require('./routes/users'));
 app.use('/api/salary',      require('./routes/salary'));
 app.use('/api/holidays',    require('./routes/holidays'));
 app.use('/api/corrections', require('./routes/corrections'));
+app.use('/api/leaves',      require('./routes/leaves'));
 app.use('/api/tenants',     require('./routes/tenants'));
 app.use('/api/payroll',     require('./routes/payroll'));
 app.use('/api/kiosk',       require('./routes/kiosk'));

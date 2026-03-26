@@ -65,9 +65,9 @@ nginx/           → nginx config with security hardening (smartworkforce.conf)
 ```
 
 ### Central Server (51.79.255.147)
-- **nginx** on port 80 → reverse proxy to `apollo-central` (port 3001, internal only)
+- **nginx** on port 80 → reverse proxy to `smartworkforce-central` (port 3001, internal only)
 - **PostgreSQL** database: `SmartWorkforce` (user: `smartworkforce_user`)
-- **PM2** process name: `apollo-central`
+- **PM2** process name: `smartworkforce-central`
 - Old app (`de-webnet-central`) still runs on port 3000 — do not touch its database (`hris_db` / `postgres`)
 
 ### Kiosk Offline Flow (branch PC)

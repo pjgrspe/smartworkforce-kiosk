@@ -217,6 +217,22 @@ export const createMyCorrection = (body)      => request('POST',  '/corrections/
 export const approveCorrection = (id, notes)  => request('PATCH', `/corrections/${id}/approve`, { notes })
 export const rejectCorrection  = (id, notes)  => request('PATCH', `/corrections/${id}/reject`,  { notes })
 
+// ── Leaves ────────────────────────────────────────────────────────
+export const getLeaves    = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return request('GET', `/leaves${qs ? '?' + qs : ''}`)
+}
+export const getMyLeaves   = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return request('GET', `/leaves/me${qs ? '?' + qs : ''}`)
+}
+export const getMyLeaveBalance     = (year) => request('GET', `/leaves/me/balance${year ? '?year=' + year : ''}`)
+export const getEmployeeLeaveBalance = (employeeId, year) => request('GET', `/leaves/balance/${employeeId}${year ? '?year=' + year : ''}`)
+export const createLeave    = (body)       => request('POST',  '/leaves', body)
+export const createMyLeave  = (body)       => request('POST',  '/leaves/me', body)
+export const approveLeave   = (id, notes)  => request('PATCH', `/leaves/${id}/approve`, { notes })
+export const rejectLeave    = (id, notes)  => request('PATCH', `/leaves/${id}/reject`,  { notes })
+
 // ── Tenant ────────────────────────────────────────────────────────
 export const getTenants           = ()          => request('GET',   '/tenants')
 export const createTenant         = (body)      => request('POST',  '/tenants', body)

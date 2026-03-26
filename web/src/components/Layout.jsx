@@ -10,6 +10,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { useTenant } from '../contexts/TenantContext'
+import { useBranding } from '../contexts/BrandingContext'
 import ThemeToggle from './ui/ThemeToggle'
 
 // ── Inline SVG icon set ──────────────────────────────────────────────
@@ -45,6 +46,12 @@ const Icons = {
   Corrections: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
       <path d="M2 13.5L10 5.5l3 3-8 8H2v-3z" /><path d="M8.5 7l3 3" />
+    </svg>
+  ),
+  Leaves: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
+      <rect x="1" y="3" width="14" height="12" rx="0.5" /><path d="M1 7h14M5 1v4M11 1v4" />
+      <path d="M5 10.5h6M5 13h4" />
     </svg>
   ),
   PayrollSalary: () => (
@@ -116,6 +123,7 @@ const NAV_GROUPS = [
     items: [
       { to: '/attendance',  label: 'Attendance',  Icon: Icons.Attendance,  roles: ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager', 'auditor'] },
       { to: '/corrections', label: 'Corrections', Icon: Icons.Corrections, roles: ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager', 'auditor'] },
+      { to: '/leaves',      label: 'Leaves',      Icon: Icons.Leaves,      roles: null },
     ],
   },
   {
@@ -141,6 +149,7 @@ const NAV_GROUPS = [
 export default function Layout({ children }) {
   const { user, signOut } = useAuth()
   const { activeTenant, tenants, switchTenant, isSuperAdmin } = useTenant()
+  const branding = useBranding()
 
   const visibleGroups = NAV_GROUPS
     .map(group => ({
@@ -161,7 +170,7 @@ export default function Layout({ children }) {
         <div className="px-5 pt-5 pb-4 border-b border-navy-500/30">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center shrink-0 shadow-[0_0_12px_rgba(56,189,248,0.25)]">
-              <span className="text-[11px] font-black text-white tracking-widest">ABG</span>
+              <span className="text-[11px] font-black text-white tracking-widest">{branding.shortName}</span>
             </div>
             <div className="min-w-0">
               <p className="text-[13px] font-bold text-navy-50 leading-none tracking-tight">SmartWorkforce</p>

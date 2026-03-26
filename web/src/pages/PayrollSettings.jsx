@@ -37,6 +37,11 @@ export default function PayrollSettings() {
     settings: { ...prev.settings, nightDiffWindow: { ...prev.settings.nightDiffWindow, [key]: val } }
   }))
 
+  const setLeaveQuota = (key, val) => setSettings(prev => ({
+    ...prev,
+    settings: { ...prev.settings, leaveQuotas: { ...prev.settings?.leaveQuotas, [key]: parseInt(val) || 0 } }
+  }))
+
   const setPayslipField = (key, val) => setSettings((prev) => ({
     ...prev,
     settings: {
@@ -44,6 +49,20 @@ export default function PayrollSettings() {
       payslip: { ...resolvePayslipSettings(prev), ...prev.settings?.payslip, [key]: val }
     }
   }))
+
+  const setBranding = (key, val) => setSettings(prev => ({
+    ...prev,
+    settings: { ...prev.settings, branding: { ...prev.settings?.branding, [key]: val } }
+  }))
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > 512 * 1024) { alert('Logo must be under 512 KB'); return }
+    const reader = new FileReader()
+    reader.onload = (ev) => setBranding('logoBase64', ev.target.result)
+    reader.readAsDataURL(file)
+  }
 
   const setPayslipSignatory = (key, val) => setSettings((prev) => ({
     ...prev,
@@ -60,6 +79,7 @@ export default function PayrollSettings() {
   const s       = settings?.settings || {}
   const ot      = s.overtimeMultipliers || {}
   const nd      = s.nightDiffWindow    || {}
+  const lq      = s.leaveQuotas        || {}
   const payslip = settings ? resolvePayslipSettings(settings) : null
 
   return (
@@ -86,6 +106,23 @@ export default function PayrollSettings() {
                   <label className="label-caps mb-1 block">Rounding Rule (min, 0 = none)</label>
                   <input type="number" className={inputCls} value={s.roundingRuleMinutes ?? 0}
                     onChange={e => setSettings(p => ({ ...p, settings: { ...p.settings, roundingRuleMinutes: +e.target.value } }))} />
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-navy-700 rounded-lg border border-navy-500 p-5">
+              <h4 className="text-xs font-semibold text-navy-100 mb-1 uppercase tracking-wider">Leave Quotas (per year)</h4>
+              <p className="text-2xs text-navy-400 mb-4">Maximum days each employee may use per calendar year. Default: 5 SL / 5 VL.</p>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label-caps mb-1 block">Sick Leave (days)</label>
+                  <input type="number" min="0" className={inputCls} value={lq.sick_leave ?? 5}
+                    onChange={e => setLeaveQuota('sick_leave', e.target.value)} />
+                </div>
+                <div>
+                  <label className="label-caps mb-1 block">Vacation Leave (days)</label>
+                  <input type="number" min="0" className={inputCls} value={lq.vacation_leave ?? 5}
+                    onChange={e => setLeaveQuota('vacation_leave', e.target.value)} />
                 </div>
               </div>
             </div>
@@ -169,6 +206,49 @@ export default function PayrollSettings() {
                         onChange={e => setPayslipSignatory(key, e.target.value)} />
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-navy-700 rounded-lg border border-navy-500 p-5 space-y-4">
+              <h4 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">Company Branding</h4>
+              <p className="text-2xs text-navy-400 -mt-2">Controls the login page and sidebar badge for this company's subdomain.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="label-caps mb-1 block">Company Name (full)</label>
+                  <input className={inputCls} placeholder="e.g. Aquino Bistro Group"
+                    value={s.branding?.companyName || ''}
+                    onChange={e => setBranding('companyName', e.target.value)} />
+                </div>
+                <div>
+                  <label className="label-caps mb-1 block">Short Name / Badge</label>
+                  <input className={inputCls} placeholder="e.g. ABG" maxLength={6}
+                    value={s.branding?.shortName || ''}
+                    onChange={e => setBranding('shortName', e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label-caps mb-1 block">Tagline</label>
+                  <input className={inputCls} placeholder="e.g. Workforce Management Platform."
+                    value={s.branding?.tagline || ''}
+                    onChange={e => setBranding('tagline', e.target.value)} />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="label-caps mb-1 block">Logo (max 512 KB — PNG, JPG, or WebP)</label>
+                  <div className="flex items-center gap-4">
+                    {s.branding?.logoBase64 && (
+                      <img src={s.branding.logoBase64} alt="Logo preview" className="h-10 w-auto rounded border border-navy-500/50 bg-navy-800 p-1" />
+                    )}
+                    <label className="cursor-pointer text-2xs text-accent hover:text-accent-200 transition-colors">
+                      {s.branding?.logoBase64 ? 'Replace logo' : '+ Upload logo'}
+                      <input type="file" className="hidden" accept="image/png,image/jpeg,image/webp" onChange={handleLogoUpload} />
+                    </label>
+                    {s.branding?.logoBase64 && (
+                      <button type="button" onClick={() => setBranding('logoBase64', null)}
+                        className="text-2xs text-signal-danger/60 hover:text-signal-danger transition-colors">
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             </div>

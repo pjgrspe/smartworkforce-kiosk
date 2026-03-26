@@ -21,12 +21,19 @@ const EMPTY_FORM = {
   email: '', contactNumber: '', address: '', dateOfBirth: '', gender: '',
   branchId: '', departmentId: '', scheduleId: '', reportsToId: '',
   employment: {
-    status: 'active', type: 'regular', position: '',
+    status: 'active', type: 'regular_with_leaves', position: '',
     dateHired: '', regularizationDate: ''
   },
   govIds: { tin: '', sss: '', philHealth: '', pagIbig: '' },
   bank: { bankName: '', accountNumber: '' },
-  taxStatus: '', dependents: 0
+  taxStatus: '', dependents: 0,
+  leaveConfig: {
+    leaveType: 'with_leaves',
+    hasSl: true,
+    hasVl: true,
+    slQuota: null,
+    vlQuota: null,
+  }
 }
 
 function deepMerge(base, updates) {
@@ -39,6 +46,14 @@ function deepMerge(base, updates) {
     }
   }
   return result
+}
+
+const EMP_TYPE_LABEL = {
+  regular_with_leaves:    'Regular with Leaves',
+  regular_without_leaves: 'Regular without Leaves',
+  probationary:           'Probationary',
+  contractual:            'Contractual',
+  part_time:              'Part-time',
 }
 
 const STATUS_VARIANT = {
@@ -104,6 +119,85 @@ function validateEmployeeForm(form, canManageBranches) {
   if (!form.employeeCode?.trim()) return 'Employee code is required.'
   if (canManageBranches && !form.branchId) return 'Please select a branch for this employee.'
   return null
+}
+
+// Leave Config Fields — used in both the Leaves tab (edit) and inline in the add form
+function LeaveConfigFields({ form, setField }) {
+  const cfg     = form.leaveConfig || {}
+  const empType = form.employment?.type || ''
+  const leaveType = empType === 'regular_without_leaves' ? 'without_leaves'
+                  : empType === 'regular_with_leaves'    ? 'with_leaves'
+                  : cfg.leaveType || 'with_leaves'
+  const hasSl      = cfg.hasSl      !== false
+  const hasVl      = cfg.hasVl      !== false
+
+  if (leaveType === 'without_leaves') {
+    return <p className="text-sm text-navy-400 py-2">This employee type has no leave access.</p>
+  }
+
+  return (
+    <div className="space-y-4">
+      {true && (
+        <div className="grid grid-cols-2 gap-4">
+          {/* Sick Leave */}
+          <div className="bg-navy-800 rounded-md border border-navy-500/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-navy-100">Sick Leave</span>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={hasSl}
+                  onChange={e => setField('leaveConfig.hasSl', e.target.checked)}
+                  className="accent-accent"
+                />
+                <span className="text-xs text-navy-300">Enabled</span>
+              </label>
+            </div>
+            {hasSl && (
+              <div>
+                <p className="label-caps mb-1">SL Quota (days/year)</p>
+                <input
+                  type="number" min="0"
+                  className="field-base w-full text-xs"
+                  placeholder="Blank = company default (5)"
+                  value={cfg.slQuota ?? ''}
+                  onChange={e => setField('leaveConfig.slQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Vacation Leave */}
+          <div className="bg-navy-800 rounded-md border border-navy-500/40 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-navy-100">Vacation Leave</span>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={hasVl}
+                  onChange={e => setField('leaveConfig.hasVl', e.target.checked)}
+                  className="accent-accent"
+                />
+                <span className="text-xs text-navy-300">Enabled</span>
+              </label>
+            </div>
+            {hasVl && (
+              <div>
+                <p className="label-caps mb-1">VL Quota (days/year)</p>
+                <input
+                  type="number" min="0"
+                  className="field-base w-full text-xs"
+                  placeholder="Blank = company default (5)"
+                  value={cfg.vlQuota ?? ''}
+                  onChange={e => setField('leaveConfig.vlQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // Face Enrollment Modal
@@ -524,6 +618,7 @@ export default function Employees() {
   const [dayOffForm, setDayOffForm] = useState({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
   const [dayOffError, setDayOffError] = useState('')
   const [dayOffSaving, setDayOffSaving] = useState(false)
+  const [modalTab, setModalTab] = useState('profile')
 
   const [reportsToSearch, setReportsToSearch] = useState('')
   const [reportsToOpen, setReportsToOpen] = useState(false)
@@ -658,6 +753,7 @@ export default function Employees() {
     setDeletedDocIds([])
     setDocPending(null)
     setDocError('')
+    setModalTab('profile')
     setShowModal(true)
   }
 
@@ -671,6 +767,10 @@ export default function Employees() {
     setDeletedDocIds([])
     setDocPending(null)
     setDocError('')
+    setModalTab('profile')
+    setDayOffForm({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
+    setDayOffError('')
+    getEmployeeDayOffs(emp._id).then(r => setDayOffs(r?.data || [])).catch(() => setDayOffs([]))
     setShowModal(true)
   }
 
@@ -1031,7 +1131,7 @@ export default function Employees() {
                 <p className="label-caps">Employment</p>
                 <p className="mt-2 text-xs text-navy-100">Position: {selectedEmployee.employment?.position || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300">Status: {selectedEmployee.employment?.status || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Type: {selectedEmployee.employment?.type || '—'}</p>
+                <p className="mt-1 text-xs text-navy-300">Type: {EMP_TYPE_LABEL[selectedEmployee.employment?.type] || selectedEmployee.employment?.type || '—'}</p>
                 <p className="mt-1 text-xs text-navy-300">Date Hired: {formatDateValue(selectedEmployee.employment?.dateHired)}</p>
               </div>
 
@@ -1084,81 +1184,33 @@ export default function Employees() {
               </div>
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3 md:col-span-2 xl:col-span-3">
-                <p className="label-caps mb-3">Day Offs</p>
-                {dayOffError && (
-                  <p className="mb-2 text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">{dayOffError}</p>
-                )}
-                {/* Existing day-offs */}
-                {dayOffs.length > 0 && (
-                  <div className="mb-3 space-y-1.5">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="label-caps">Day Offs</p>
+                  {canEdit && (
+                    <button type="button"
+                      onClick={() => { requestEdit(selectedEmployee); setTimeout(() => setModalTab('dayoffs'), 50) }}
+                      className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                      Manage →
+                    </button>
+                  )}
+                </div>
+                {dayOffs.length === 0 ? (
+                  <p className="text-2xs text-navy-400">No day offs scheduled.</p>
+                ) : (
+                  <div className="space-y-1.5">
                     {dayOffs.map(d => {
                       const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
                       const detail = d.type === 'custom' ? ` (${d.startTime}–${d.endTime})` : ''
                       return (
-                        <div key={d.id} className="flex items-center justify-between gap-3 text-2xs">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono text-navy-200">{d.date}</span>
-                            <span className="text-accent">{TYPE_LABELS[d.type] || d.type}{detail}</span>
-                            {d.reason && <span className="text-navy-400 truncate">— {d.reason}</span>}
-                          </div>
-                          <button onClick={() => handleRemoveDayOff(d.id)}
-                            className="text-signal-danger/60 hover:text-signal-danger transition-colors shrink-0">
-                            Remove
-                          </button>
+                        <div key={d.id} className="flex items-center gap-2 text-2xs">
+                          <span className="font-mono text-navy-200">{d.date}</span>
+                          <span className="text-accent">{TYPE_LABELS[d.type] || d.type}{detail}</span>
+                          {d.reason && <span className="text-navy-400 truncate">— {d.reason}</span>}
                         </div>
                       )
                     })}
                   </div>
                 )}
-                {/* Add form */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
-                  <div>
-                    <p className="label-caps mb-1">Date *</p>
-                    <input type="date" className="field-base text-xs"
-                      value={dayOffForm.date} onChange={e => setDayOffForm(p => ({ ...p, date: e.target.value }))} />
-                  </div>
-                  <div>
-                    <p className="label-caps mb-1">Type</p>
-                    <select className="field-base text-xs" value={dayOffForm.type}
-                      onChange={e => setDayOffForm(p => ({ ...p, type: e.target.value, startTime: '', endTime: '' }))}>
-                      <option value="full_day">Full Day</option>
-                      <option value="half_day_am">Half Day AM</option>
-                      <option value="half_day_pm">Half Day PM</option>
-                      <option value="custom">Custom Time</option>
-                    </select>
-                  </div>
-                  {dayOffForm.type === 'custom' ? (
-                    <>
-                      <div>
-                        <p className="label-caps mb-1">Off From</p>
-                        <input type="time" className="field-base text-xs"
-                          value={dayOffForm.startTime} onChange={e => setDayOffForm(p => ({ ...p, startTime: e.target.value }))} />
-                      </div>
-                      <div>
-                        <p className="label-caps mb-1">Off Until</p>
-                        <input type="time" className="field-base text-xs"
-                          value={dayOffForm.endTime} onChange={e => setDayOffForm(p => ({ ...p, endTime: e.target.value }))} />
-                      </div>
-                    </>
-                  ) : (
-                    <div className="md:col-span-2">
-                      <p className="label-caps mb-1">Reason (optional)</p>
-                      <input className="field-base text-xs" placeholder="e.g. Rotating rest day"
-                        value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
-                    </div>
-                  )}
-                </div>
-                {dayOffForm.type === 'custom' && (
-                  <div className="mt-2">
-                    <p className="label-caps mb-1">Reason (optional)</p>
-                    <input className="field-base text-xs" placeholder="e.g. Medical appointment"
-                      value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
-                  </div>
-                )}
-                <Button type="button" variant="secondary" size="sm" className="mt-3"
-                  onClick={handleAddDayOff} loading={dayOffSaving}>
-                  + Add Day Off
-                </Button>
               </div>
 
               <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
@@ -1178,16 +1230,42 @@ export default function Employees() {
           title={editTarget ? 'Edit Employee' : 'Add Employee'}
           width="max-w-4xl"
           onClose={() => setShowModal(false)}
-          onConfirm={handleSave}
+          onConfirm={modalTab === 'dayoffs' ? () => setShowModal(false) : handleSave}
+          confirmLabel={modalTab === 'dayoffs' ? 'Done' : 'Save Changes'}
           loading={saving}
         >
           <div className="space-y-1">
+            {editTarget && (
+              <div className="flex gap-0 mb-5 -mx-6 px-6 border-b border-navy-500">
+                {[
+                  { key: 'profile',   label: 'Profile'   },
+                  { key: 'dayoffs',   label: 'Day Offs'  },
+                  { key: 'leaves',    label: 'Leaves'    },
+                  { key: 'documents', label: 'Documents' },
+                ].map(({ key, label }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setModalTab(key)}
+                    className={`px-4 py-2.5 text-xs font-medium border-b-2 -mb-px transition-colors ${
+                      modalTab === key
+                        ? 'text-accent border-accent'
+                        : 'text-navy-400 border-transparent hover:text-navy-200'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {error && (
               <p className="mb-4 text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">
                 {error}
               </p>
             )}
 
+            {(!editTarget || modalTab === 'profile') && (<>
             <div className="grid grid-cols-2 gap-4">
               <Field label="Employee Code *"><input className="field-base" value={form.employeeCode} onChange={e => setField('employeeCode', e.target.value)} /></Field>
               <Field label="First Name *"><input className="field-base" value={form.firstName} onChange={e => setField('firstName', e.target.value)} /></Field>
@@ -1244,8 +1322,17 @@ export default function Employees() {
                 </select>
               </Field>
               <Field label="Employment Type">
-                <select className="field-base" value={form.employment?.type || 'regular'} onChange={e => setField('employment.type', e.target.value)}>
-                  <option value="regular">Regular</option>
+                <select className="field-base" value={form.employment?.type || 'regular_with_leaves'} onChange={e => {
+                  const type = e.target.value
+                  setForm(prev => {
+                    const updates = { ...prev, employment: { ...prev.employment, type } }
+                    if (type === 'regular_with_leaves')    updates.leaveConfig = { ...prev.leaveConfig, leaveType: 'with_leaves' }
+                    else if (type === 'regular_without_leaves') updates.leaveConfig = { ...prev.leaveConfig, leaveType: 'without_leaves' }
+                    return updates
+                  })
+                }}>
+                  <option value="regular_with_leaves">Regular with Leaves</option>
+                  <option value="regular_without_leaves">Regular without Leaves</option>
                   <option value="probationary">Probationary</option>
                   <option value="contractual">Contractual</option>
                   <option value="part_time">Part-time</option>
@@ -1317,6 +1404,8 @@ export default function Employees() {
               </Field>
             </div>
 
+            {!editTarget && <LeaveConfigFields form={form} setField={setField} />}
+
             <SectionHeading>Government IDs</SectionHeading>
             <div className="grid grid-cols-2 gap-4">
               <Field label="TIN"><input className="field-base" value={form.govIds?.tin || ''} onChange={e => setField('govIds.tin', e.target.value)} /></Field>
@@ -1330,7 +1419,95 @@ export default function Employees() {
               <Field label="Bank Name"><input className="field-base" value={form.bank?.bankName || ''} onChange={e => setField('bank.bankName', e.target.value)} /></Field>
               <Field label="Account Number"><input className="field-base" value={form.bank?.accountNumber || ''} onChange={e => setField('bank.accountNumber', e.target.value)} /></Field>
             </div>
+            </>)}
 
+            {editTarget && modalTab === 'dayoffs' && (
+              <div className="space-y-3">
+                {dayOffError && (
+                  <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">{dayOffError}</p>
+                )}
+                {dayOffs.length > 0 ? (
+                  <div className="divide-y divide-navy-500/30 rounded-md border border-navy-500 overflow-hidden">
+                    {dayOffs.map(d => {
+                      const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
+                      const detail = d.type === 'custom' ? ` (${d.startTime}–${d.endTime})` : ''
+                      return (
+                        <div key={d.id} className="flex items-center justify-between gap-3 px-4 py-2.5 bg-navy-800/40 text-xs">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="font-mono text-navy-200 shrink-0">{d.date}</span>
+                            <span className="text-accent font-medium">{TYPE_LABELS[d.type] || d.type}{detail}</span>
+                            {d.reason && <span className="text-navy-400 truncate">— {d.reason}</span>}
+                          </div>
+                          <button type="button" onClick={() => handleRemoveDayOff(d.id)}
+                            className="text-2xs text-signal-danger/60 hover:text-signal-danger transition-colors shrink-0">
+                            Remove
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-2xs text-navy-400 py-2">No day offs scheduled.</p>
+                )}
+                <div className="rounded-md border border-navy-500/60 bg-navy-800/40 px-4 py-3 space-y-3">
+                  <p className="label-caps text-navy-300">Add Day Off</p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 items-end">
+                    <div>
+                      <p className="label-caps mb-1">Date *</p>
+                      <input type="date" className="field-base text-xs"
+                        value={dayOffForm.date} onChange={e => setDayOffForm(p => ({ ...p, date: e.target.value }))} />
+                    </div>
+                    <div>
+                      <p className="label-caps mb-1">Type</p>
+                      <select className="field-base text-xs" value={dayOffForm.type}
+                        onChange={e => setDayOffForm(p => ({ ...p, type: e.target.value, startTime: '', endTime: '' }))}>
+                        <option value="full_day">Full Day</option>
+                        <option value="half_day_am">Half Day AM</option>
+                        <option value="half_day_pm">Half Day PM</option>
+                        <option value="custom">Custom Time</option>
+                      </select>
+                    </div>
+                    {dayOffForm.type === 'custom' ? (
+                      <>
+                        <div>
+                          <p className="label-caps mb-1">Off From</p>
+                          <input type="time" className="field-base text-xs"
+                            value={dayOffForm.startTime} onChange={e => setDayOffForm(p => ({ ...p, startTime: e.target.value }))} />
+                        </div>
+                        <div>
+                          <p className="label-caps mb-1">Off Until</p>
+                          <input type="time" className="field-base text-xs"
+                            value={dayOffForm.endTime} onChange={e => setDayOffForm(p => ({ ...p, endTime: e.target.value }))} />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="md:col-span-2">
+                        <p className="label-caps mb-1">Reason (optional)</p>
+                        <input className="field-base text-xs" placeholder="e.g. Rotating rest day"
+                          value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
+                      </div>
+                    )}
+                  </div>
+                  {dayOffForm.type === 'custom' && (
+                    <div>
+                      <p className="label-caps mb-1">Reason (optional)</p>
+                      <input className="field-base text-xs" placeholder="e.g. Medical appointment"
+                        value={dayOffForm.reason} onChange={e => setDayOffForm(p => ({ ...p, reason: e.target.value }))} />
+                    </div>
+                  )}
+                  <Button type="button" variant="secondary" size="sm"
+                    onClick={handleAddDayOff} loading={dayOffSaving}>
+                    + Add Day Off
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {editTarget && modalTab === 'leaves' && (
+              <LeaveConfigFields form={form} setField={setField} />
+            )}
+
+            {(!editTarget || modalTab === 'documents') && (<>
             <SectionHeading>Documents</SectionHeading>
             {docError && (
               <p className="mb-2 text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">{docError}</p>
@@ -1403,6 +1580,7 @@ export default function Employees() {
                 <input type="file" className="hidden" accept=".pdf,.jpg,.jpeg,.png,.webp" onChange={handleDocFileSelect} />
               </label>
             )}
+            </>)}
           </div>
         </Modal>
       )}

@@ -12,6 +12,8 @@ function mapRow(row) {
     startTime:  row.start_time || null,
     endTime:    row.end_time   || null,
     reason:     row.reason     || null,
+    source:     row.source     || 'manual',
+    isPaid:     row.is_paid    || false,
     createdBy:  row.created_by || null,
     createdAt:  row.created_at,
     updatedAt:  row.updated_at,
@@ -46,20 +48,22 @@ async function listForRange({ tenantId, employeeId, startDate, endDate }) {
   return rows.map(mapRow);
 }
 
-async function upsert({ tenantId, employeeId, date, type, startTime, endTime, reason, createdBy }) {
+async function upsert({ tenantId, employeeId, date, type, startTime, endTime, reason, createdBy, source, isPaid }) {
   const pool = getPool();
   const { rows } = await pool.query(
     `INSERT INTO employee_day_offs
-       (tenant_id, employee_id, date, type, start_time, end_time, reason, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (tenant_id, employee_id, date, type, start_time, end_time, reason, created_by, source, is_paid)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (employee_id, date) DO UPDATE
        SET type       = EXCLUDED.type,
            start_time = EXCLUDED.start_time,
            end_time   = EXCLUDED.end_time,
            reason     = EXCLUDED.reason,
+           source     = EXCLUDED.source,
+           is_paid    = EXCLUDED.is_paid,
            updated_at = NOW()
      RETURNING *`,
-    [tenantId, employeeId, date, type, startTime || null, endTime || null, reason || null, createdBy || null],
+    [tenantId, employeeId, date, type, startTime || null, endTime || null, reason || null, createdBy || null, source || 'manual', isPaid || false],
   );
   return mapRow(rows[0]);
 }

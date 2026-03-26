@@ -20,6 +20,15 @@ function mapTenant(row) {
   };
 }
 
+async function findByHostname(hostname) {
+  const pool = getPool();
+  const { rows } = await pool.query(
+    'SELECT * FROM tenants WHERE domain = $1 AND is_active = TRUE LIMIT 1',
+    [hostname],
+  );
+  return mapTenant(rows[0]);
+}
+
 async function findActiveByCode(code) {
   const pool = getPool();
   const { rows } = await pool.query('SELECT * FROM tenants WHERE code = $1 AND is_active = TRUE LIMIT 1', [code]);
@@ -110,6 +119,7 @@ async function updateTenant(id, patch) {
 }
 
 module.exports = {
+  findByHostname,
   findActiveByCode,
   listTenants,
   findById,

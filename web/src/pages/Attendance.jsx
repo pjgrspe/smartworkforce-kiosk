@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { getAttendance, getEmployees, createCorrection } from '../config/api'
+import { getAttendance, getEmployees, getBranches, createCorrection } from '../config/api'
 import { fmtDate, fmtTime, employeeName } from '../lib/format'
 import Badge from '../components/ui/Badge'
 import Spinner from '../components/ui/Spinner'
@@ -49,9 +49,12 @@ function toTimeHHmm(ts) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+
 export default function Attendance() {
   const { user } = useAuth()
   const canCorrect = ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager'].includes(user?.role)
+  const [activeTab,  setActiveTab]  = useState('logs')
   const [logs,       setLogs]       = useState([])
   const [employees,  setEmployees]  = useState([])
   const [loading,    setLoading]    = useState(false)
@@ -59,9 +62,13 @@ export default function Attendance() {
   const [editTarget, setEditTarget] = useState(null)
   const [filters,   setFilters]   = useState({
     employeeId: '',
-    from: new Date().toISOString().slice(0, 10),
-    to:   new Date().toISOString().slice(0, 10),
+    from: today,
+    to:   today,
   })
+  const [summaryDate,    setSummaryDate]    = useState(today)
+  const [summaryLogs,    setSummaryLogs]    = useState([])
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [branches,       setBranches]       = useState([])
   const [empSearch, setEmpSearch] = useState('')
   const [empPickerOpen, setEmpPickerOpen] = useState(false)
   const [page, setPage] = useState(1)
@@ -92,6 +99,23 @@ export default function Attendance() {
   }, [filters])
 
   useEffect(() => { loadData() }, [loadData])
+
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true)
+    try {
+      const [empRes, logRes, branchRes] = await Promise.all([
+        getEmployees(),
+        getAttendance({ start_date: summaryDate, end_date: summaryDate, limit: 5000 }),
+        getBranches(),
+      ])
+      setEmployees(empRes?.data || [])
+      setSummaryLogs(logRes?.data || [])
+      setBranches(branchRes?.data || [])
+    } catch (err) { console.error(err) }
+    finally { setSummaryLoading(false) }
+  }, [summaryDate])
+
+  useEffect(() => { if (activeTab === 'summary') loadSummary() }, [activeTab, loadSummary])
 
   const sortedLogs = useMemo(() => {
     const safeText = (value) => String(value || '').toLowerCase()
@@ -146,6 +170,47 @@ export default function Attendance() {
 
   const paginated  = sortedLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
   const totalPages = Math.ceil(sortedLogs.length / PAGE_SIZE)
+
+  const { summaryRows, onBreakRows } = useMemo(() => {
+    // Group all logs by employee, sorted ascending by time
+    const allByEmp = {}
+    summaryLogs.forEach(l => {
+      const id = l.employeeId?._id || l.employeeId
+      if (!allByEmp[id]) allByEmp[id] = []
+      allByEmp[id].push(l)
+    })
+    Object.values(allByEmp).forEach(arr => arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
+
+    const rows = employees
+      .filter(e => e.employment?.status === 'active')
+      .map(emp => {
+        const empLogs = allByEmp[emp._id] || []
+        const inLog   = empLogs.find(l => l.type === 'IN')
+        const lastLog = empLogs[empLogs.length - 1]
+        const ex      = inLog?.exceptions || {}
+        const isOnBreak = inLog && lastLog?.type === 'BREAK_IN'
+        const status = !inLog ? 'absent' : ex.isLate ? 'late' : 'present'
+        return {
+          emp, status, isOnBreak,
+          timeIn:      inLog ? fmtTime(inLog.timestamp) : null,
+          breakSince:  isOnBreak ? fmtTime(lastLog.timestamp) : null,
+          lateMinutes: ex.lateMinutes || 0,
+        }
+      })
+
+    const summaryRows = rows
+      .sort((a, b) => {
+        const order = { late: 0, absent: 1, present: 2 }
+        if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status]
+        return `${a.emp.lastName} ${a.emp.firstName}`.localeCompare(`${b.emp.lastName} ${b.emp.firstName}`)
+      })
+
+    const onBreakRows = rows
+      .filter(r => r.isOnBreak)
+      .sort((a, b) => `${a.emp.lastName} ${a.emp.firstName}`.localeCompare(`${b.emp.lastName} ${b.emp.firstName}`))
+
+    return { summaryRows, onBreakRows }
+  }, [summaryLogs, employees])
 
   const buildExcelFileName = () => {
     const from = filters.from || 'start'
@@ -314,13 +379,123 @@ export default function Attendance() {
       {/* Page header */}
       <div className="flex items-center justify-between px-6 py-3.5
                       border-b border-navy-500 bg-navy-800">
-        <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
-          Attendance Logs
-        </h1>
-        <span className="label-caps font-mono tabular">{sortedLogs.length} records</span>
+        <div className="flex items-center gap-4">
+          <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">Attendance</h1>
+          <div className="flex gap-1">
+            {['logs', 'summary'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`px-3 h-6 text-2xs font-medium rounded transition-colors ${activeTab === tab ? 'bg-accent text-white' : 'text-navy-300 hover:text-navy-100'}`}>
+                {tab === 'logs' ? 'Logs' : 'Daily Summary'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span className="label-caps font-mono tabular">
+          {activeTab === 'logs' ? `${sortedLogs.length} records` : `${summaryRows.length} employees`}
+        </span>
       </div>
 
-      {/* Filters bar */}
+      {/* Daily Summary view */}
+      {activeTab === 'summary' && (
+        <>
+          <div className="flex items-end gap-3 px-6 py-3 border-b border-navy-500/50 bg-navy-800">
+            <div className="flex flex-col gap-1">
+              <label className="label-caps">Date</label>
+              <input type="date" className={fieldCls} value={summaryDate}
+                onChange={e => setSummaryDate(e.target.value)} />
+            </div>
+            <div className="ml-auto flex gap-4 text-2xs text-navy-300 self-end pb-1">
+              <span className="text-signal-success font-medium">{summaryRows.filter(r => r.status === 'present').length} Present</span>
+              <span className="text-signal-warning font-medium">{summaryRows.filter(r => r.status === 'late').length} Late</span>
+              <span className="text-accent font-medium">{onBreakRows.length} On Break</span>
+              <span className="text-signal-danger font-medium">{summaryRows.filter(r => r.status === 'absent').length} Absent</span>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto p-6 space-y-6">
+            {summaryLoading ? (
+              <div className="flex items-center justify-center h-48"><Spinner size="lg" /></div>
+            ) : (<>
+              {onBreakRows.length > 0 && (
+                <div>
+                  <h2 className="label-caps mb-2 text-accent">Currently on Break ({onBreakRows.length})</h2>
+                  <div className="table-shell">
+                    <table className="table-base">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="table-head-row">
+                          <th className="table-th">Employee</th>
+                          <th className="table-th">Branch</th>
+                          <th className="table-th">Time In</th>
+                          <th className="table-th">Break Since</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {onBreakRows.map((row, i) => {
+                          const branchId = row.emp.branchId?._id || row.emp.branchId
+                          const branch = branches.find(b => b._id === branchId)?.name || '—'
+                          return (
+                            <tr key={row.emp._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                              <td className="px-4 py-2.5 font-medium text-navy-100">
+                                {row.emp.firstName} {row.emp.lastName}
+                                {row.emp.employeeCode && <span className="text-navy-500 ml-1 font-mono text-2xs">{row.emp.employeeCode}</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-navy-300">{branch}</td>
+                              <td className="px-4 py-2.5 font-mono text-navy-300 tabular">{row.timeIn || '—'}</td>
+                              <td className="px-4 py-2.5 font-mono text-accent tabular">{row.breakSince || '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div>
+              <h2 className="label-caps mb-2 text-navy-300">Attendance Status</h2>
+              <div className="table-shell">
+                <table className="table-base">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="table-head-row">
+                      <th className="table-th">Employee</th>
+                      <th className="table-th">Branch</th>
+                      <th className="table-th">Status</th>
+                      <th className="table-th">Time In</th>
+                      <th className="table-th">Late By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryRows.length === 0 ? (
+                      <tr><td colSpan={5} className="table-empty">No active employees found.</td></tr>
+                    ) : summaryRows.map((row, i) => {
+                      const branchId = row.emp.branchId?._id || row.emp.branchId
+                      const branch = branches.find(b => b._id === branchId)?.name || '—'
+                      return (
+                        <tr key={row.emp._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                          <td className="px-4 py-2.5 font-medium text-navy-100">
+                            {row.emp.firstName} {row.emp.lastName}
+                            {row.emp.employeeCode && <span className="text-navy-500 ml-1 font-mono text-2xs">{row.emp.employeeCode}</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-navy-300">{branch}</td>
+                          <td className="px-4 py-2.5">
+                            {row.status === 'present' && <Badge variant="active">Present</Badge>}
+                            {row.status === 'late'    && <Badge variant="warning">Late</Badge>}
+                            {row.status === 'absent'  && <Badge variant="danger">Absent</Badge>}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-navy-300 tabular">{row.timeIn || '—'}</td>
+                          <td className="px-4 py-2.5 text-navy-300">{row.lateMinutes > 0 ? `${row.lateMinutes}m` : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              </div>
+            </>)}
+          </div>
+        </>
+      )}
+
+      {/* Logs view */}
+      {activeTab === 'logs' && <>
       <div className="flex flex-wrap items-end gap-3 px-6 py-3
                       border-b border-navy-500/50 bg-navy-800">
         <div className="flex flex-col gap-1">
@@ -496,6 +671,7 @@ export default function Attendance() {
           </>
         )}
       </div>
+      </>}
 
       {editTarget && (
         <NewCorrectionModal

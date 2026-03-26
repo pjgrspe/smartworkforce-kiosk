@@ -199,7 +199,8 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
     const scheduleRestDay = (schedule.restDays || []).includes(dayOfWeek);
     const dayOff          = employeeDayOffs.find(x => x.date === dateStr) || null;
-    const isFullDayOff    = dayOff?.type === 'full_day';
+    const isPaidLeave     = !!dayOff?.isPaid;
+    const isFullDayOff    = dayOff?.type === 'full_day' && !isPaidLeave;
     const isRestDay       = scheduleRestDay || isFullDayOff;
 
     const holiday     = holidays.find(h => toManilaDateStr(h.date) === dateStr);
@@ -217,7 +218,7 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       outLog = (logsByDate[nextDateStr] || []).find((log) => log.type === 'OUT');
     }
 
-    const isAbsent     = !inLog && !isRestDay;
+    const isAbsent     = !inLog && !isRestDay && !isPaidLeave;
     const isMissingOut = !!inLog && !outLog;
 
     // Compute effective schedule boundaries for partial day-offs
@@ -277,6 +278,28 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
       // Night diff
       nightDiffMinutes = calcNightDiffMinutes(actualInMin, actualOutMin, ndStart, ndEnd);
+
+      // Partial day-offs: suppress late/undertime/OT — basic pay uses payFraction instead
+      if (dayOff && !isFullDayOff) {
+        lateMinutes      = 0;
+        undertimeMinutes = 0;
+        overtimeMinutes  = 0;
+      }
+    }
+
+    // Pay fraction: paid leave = full pay; partial day-offs = proportional; full unpaid day-off = excluded from payableDays
+    let payFraction = 1.0;
+    if (!isPaidLeave && dayOff && !isFullDayOff) {
+      if (dayOff.type === 'half_day_am' || dayOff.type === 'half_day_pm') {
+        payFraction = 0.5;
+      } else if (dayOff.type === 'custom') {
+        const offStart = timeStrToMinutes(dayOff.startTime) ?? scheduledStartMin;
+        const offEnd   = timeStrToMinutes(dayOff.endTime)   ?? scheduledEndMin;
+        const offMins  = Math.max(0, offEnd - offStart);
+        payFraction = scheduledEffective > 0
+          ? Math.max(0, Math.min(1, (scheduledEffective - offMins) / scheduledEffective))
+          : 0;
+      }
     }
 
     results.push({
@@ -286,13 +309,15 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       holidayType,
       isAbsent,
       isMissingOut,
+      isPaidLeave,
       workedMinutes,
       lateMinutes,
       undertimeMinutes,
       overtimeMinutes,
       nightDiffMinutes,
+      payFraction,
       logCount: dayLogs.length,
-      dayOff:   dayOff ? { type: dayOff.type, reason: dayOff.reason, startTime: dayOff.startTime, endTime: dayOff.endTime } : null,
+      dayOff:   dayOff ? { type: dayOff.type, reason: dayOff.reason, startTime: dayOff.startTime, endTime: dayOff.endTime, isPaid: dayOff.isPaid, source: dayOff.source } : null,
     });
   }
 

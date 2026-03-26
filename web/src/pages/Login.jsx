@@ -7,8 +7,9 @@
 import { useState } from 'react'
 import { useAuth } from '../contexts/AuthContext'
 import { useNavigate } from 'react-router-dom'
+import { useBranding } from '../contexts/BrandingContext'
 import ThemeToggle from '../components/ui/ThemeToggle'
-import logo from '../img/delogo-2022.png'
+import fallbackLogo from '../img/delogo-2022.png'
 
 // Abstract blueprint SVG (inline, no external deps)
 function Blueprint() {
@@ -82,6 +83,8 @@ function Blueprint() {
 export default function Login() {
   const { signIn }   = useAuth()
   const navigate     = useNavigate()
+  const branding     = useBranding()
+  const logo         = branding.logoBase64 || fallbackLogo
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
@@ -125,7 +128,7 @@ export default function Login() {
           {/* Wordmark */}
           <div>
             <div className="flex items-center gap-3">
-              <img src={logo} alt="Aquino Bistro Group" className="h-10 w-auto" />
+              <img src={logo} alt={branding.companyName} className="h-10 w-auto" />
               <span className="text-xs text-navy-400 font-mono">v2.0</span>
             </div>
             <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-2 font-medium">
@@ -136,11 +139,11 @@ export default function Login() {
           {/* Hero copy */}
           <div className="mt-auto">
             <h1 className="text-[48px] font-thin text-navy-50 leading-[1.1] tracking-tighter">
-              Aquino Bistro Group<br />
+              {branding.companyName}<br />
               <span className="font-bold text-brand-green">SmartWorkforce</span>
             </h1>
             <p className="mt-5 text-sm text-navy-200 max-w-[360px] leading-relaxed font-light">
-              AI-Powered Facial Recognition Attendance, Payroll Automation, and Workforce Management Platform.
+              {branding.tagline}
             </p>
 
           </div>
@@ -148,7 +151,7 @@ export default function Login() {
           {/* Footer classification */}
           <div className="mt-10 flex items-center justify-between text-xs text-navy-500
                           uppercase tracking-[0.11em] border-t border-navy-500/20 pt-4">
-            <span>Aquino Bistro Group SmartWorkforce (c) 2026</span>
+            <span>{branding.companyName} SmartWorkforce (c) {new Date().getFullYear()}</span>
             <span className="font-mono">REV 2.0.0 // PH-REGION</span>
           </div>
         </div>
@@ -159,7 +162,7 @@ export default function Login() {
 
         {/* Mobile wordmark */}
         <div className="lg:hidden mb-10 flex flex-col items-center gap-1">
-          <img src={logo} alt="Aquino Bistro Group" className="h-9 w-auto" />
+          <img src={logo} alt={branding.companyName} className="h-9 w-auto" />
           <p className="text-xs text-navy-400 uppercase tracking-[0.12em] mt-1">SmartWorkforce</p>
         </div>
 
@@ -216,7 +219,7 @@ export default function Login() {
           </form>
 
           <p className="mt-10 text-center text-xs text-navy-500 uppercase tracking-[0.11em]">
-            Aquino Bistro Group SmartWorkforce // Secured Access
+            {branding.companyName} SmartWorkforce // Secured Access
           </p>
         </div>
       </div>

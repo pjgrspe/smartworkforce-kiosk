@@ -170,7 +170,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     if (day.isHoliday && day.isRestDay) return (day.workedMinutes || 0) > 0;
     return !day.isAbsent && !day.isRestDay;
   });
-  const daysPresent = payableDays.length;
+  const daysPresent = round2(payableDays.reduce((sum, day) => sum + (day.payFraction ?? 1), 0));
 
   // Basic pay (days present × day rate)
   const basicPay = round2(workDayRate * daysPresent);
