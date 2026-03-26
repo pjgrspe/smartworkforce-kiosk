@@ -97,16 +97,20 @@ Write-Host ""
 if ($isUpdate) {
     Set-Location $INSTALL_DIR
 
-    # Get current installed version
+    # Get current installed version (git describe exits non-zero when no tags; suspend Stop preference)
+    $ErrorActionPreference = "Continue"
     $currentTag = git describe --tags --exact-match HEAD 2>$null
     if (-not $currentTag) { $currentTag = git describe --tags 2>$null }
     if (-not $currentTag) { $currentTag = "(unknown)" }
+    $ErrorActionPreference = "Stop"
     Write-Host "  Installed version : $currentTag" -ForegroundColor White
 
     # Fetch all tags and check for updates
     git fetch --tags --quiet
     if (-not $latestTag) {
+        $ErrorActionPreference = "Continue"
         $latestTag = git tag --sort=-version:refname 2>$null | Select-Object -First 1
+        $ErrorActionPreference = "Stop"
     }
 
     if (-not $latestTag) {
