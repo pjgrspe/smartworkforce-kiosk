@@ -154,48 +154,55 @@ if ($isUpdate) {
     Write-Host "  Download complete." -ForegroundColor Green
 }
 
-# -- 5. Configuration (fresh install only) ------------------------------------
-if (-not $isUpdate) {
-    Write-Host ""
-    Write-Host "Configuration" -ForegroundColor Yellow
-    Write-Host ""
+# -- 5. Configuration (always — allows switching company on update) -----------
+Write-Host ""
+Write-Host "Configuration" -ForegroundColor Yellow
+Write-Host ""
 
-    $centralUrl = "https://abg-hrd.dewebnetsolution.com"
-    Write-Host "  Checking server connection..." -ForegroundColor DarkGray
-    try {
-        Invoke-WebRequest -Uri "$centralUrl/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null
-        Write-Host "  Server reachable." -ForegroundColor Green
-    } catch {
-        throw "Cannot reach the SmartWorkforce server. Make sure this PC has internet access and try again."
+$centralUrl = "https://abg-hrd.dewebnetsolution.com"
+Write-Host "  Checking server connection..." -ForegroundColor DarkGray
+try {
+    Invoke-WebRequest -Uri "$centralUrl/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null
+    Write-Host "  Server reachable." -ForegroundColor Green
+} catch {
+    throw "Cannot reach the SmartWorkforce server. Make sure this PC has internet access and try again."
+}
+
+# Show current tenant code if updating
+if ($isUpdate) {
+    $currentEnv = Join-Path $INSTALL_DIR ".env"
+    if (Test-Path $currentEnv) {
+        $currentCode = (Get-Content $currentEnv | Where-Object { $_ -match "^TENANT_CODE=" }) -replace "^TENANT_CODE=", ""
+        if ($currentCode) { Write-Host "  Current company code: $currentCode" -ForegroundColor DarkGray }
     }
+}
 
-    $tenantCode = ""
-    while ([string]::IsNullOrWhiteSpace($tenantCode)) {
-        $raw = Read-Host "  Tenant / company code (e.g. ABG)"
-        if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "  Tenant code is required." -ForegroundColor Red; continue }
-        $raw = $raw.ToUpper().Trim()
-        Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
-        try {
-            $resp = Invoke-WebRequest -Uri "$centralUrl/api/kiosk/validate-tenant?tenant=$raw" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
-            $json = $resp.Content | ConvertFrom-Json
-            Write-Host "  Verified: $($json.name)" -ForegroundColor Green
-            $tenantCode = $raw
-        } catch {
-            $status = $_.Exception.Response.StatusCode.Value__
-            if ($status -eq 404) {
-                Write-Host "  Company code '$raw' not found. Please check and try again." -ForegroundColor Red
-            } else {
-                Write-Host "  Could not verify code. Server error - try again." -ForegroundColor Red
-            }
+$tenantCode = ""
+while ([string]::IsNullOrWhiteSpace($tenantCode)) {
+    $raw = Read-Host "  Tenant / company code (e.g. ABG)"
+    if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "  Tenant code is required." -ForegroundColor Red; continue }
+    $raw = $raw.ToUpper().Trim()
+    Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
+    try {
+        $resp = Invoke-WebRequest -Uri "$centralUrl/api/kiosk/validate-tenant?tenant=$raw" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+        $json = $resp.Content | ConvertFrom-Json
+        Write-Host "  Verified: $($json.name)" -ForegroundColor Green
+        $tenantCode = $raw
+    } catch {
+        $status = $_.Exception.Response.StatusCode.Value__
+        if ($status -eq 404) {
+            Write-Host "  Company code '$raw' not found. Please check and try again." -ForegroundColor Red
+        } else {
+            Write-Host "  Could not verify code. Server error - try again." -ForegroundColor Red
         }
     }
-
-    Write-Host ""
-    Write-Host "Writing .env..." -ForegroundColor Yellow
-    $envContent = "CENTRAL_URL=$centralUrl`nTENANT_CODE=$tenantCode`nPORT=4000`nWS_PORT=4001`nSYNC_INTERVAL_MS=30000`nENCODING_REFRESH_INTERVAL_MS=600000`nDB_PATH=./data/kiosk.db"
-    Set-Content (Join-Path $INSTALL_DIR ".env") -Value $envContent -Encoding UTF8
-    Write-Host "  .env written." -ForegroundColor Green
 }
+
+Write-Host ""
+Write-Host "Writing .env..." -ForegroundColor Yellow
+$envContent = "CENTRAL_URL=$centralUrl`nTENANT_CODE=$tenantCode`nPORT=4000`nWS_PORT=4001`nSYNC_INTERVAL_MS=30000`nENCODING_REFRESH_INTERVAL_MS=600000`nDB_PATH=./data/kiosk.db"
+Set-Content (Join-Path $INSTALL_DIR ".env") -Value $envContent -Encoding UTF8
+Write-Host "  .env written." -ForegroundColor Green
 
 # -- 6. npm install ------------------------------------------------------------
 Write-Host ""
