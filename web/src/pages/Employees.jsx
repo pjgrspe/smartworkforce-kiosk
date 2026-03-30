@@ -409,6 +409,8 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
   const currentStep = STEPS[step] || STEPS[0]
   const progress = samples.length
   const showVideo = phase === 'loading' || phase === 'ready' || phase === 'done'
+  const guideColor  = detScore >= 0.62 ? '#4ade80' : faceOk ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.28)'
+  const guideStatus = detScore >= 0.62 ? 'READY' : faceOk ? 'HOLD STILL' : 'ALIGN'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
@@ -478,16 +480,49 @@ function FaceEnrollModal({ employee, onClose, onDone }) {
             {flash && <div className="absolute inset-0 bg-signal-success/40 pointer-events-none" />}
 
             {phase === 'ready' && (
-              <div className={`absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1 text-2xs font-semibold transition-colors duration-300 ${
-                detScore >= 0.62 ? 'bg-signal-success text-white' :
-                faceOk ? 'bg-signal-warning text-[#151515]' : 'bg-signal-danger text-white'
-              }`}>
-                {detScore >= 0.62
-                  ? `Quality ${Math.round(detScore * 100)}%`
-                  : faceOk
-                  ? 'Adjust position or lighting'
-                  : 'No face detected'}
-              </div>
+              <svg
+                className="absolute inset-0 w-full h-full pointer-events-none"
+                viewBox="0 0 160 90"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <defs>
+                  <radialGradient id="vig" cx="50%" cy="50%" r="58%">
+                    <stop offset="30%" stopColor="black" stopOpacity="0" />
+                    <stop offset="100%" stopColor="black" stopOpacity="0.55" />
+                  </radialGradient>
+                  <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+                    <feGaussianBlur stdDeviation="0.7" result="b" />
+                    <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+                  </filter>
+                </defs>
+
+                {/* Vignette */}
+                <rect width="160" height="90" fill="url(#vig)" />
+
+                {/* Oval — glows green when ready */}
+                <ellipse cx="80" cy="43" rx="33" ry="39"
+                  fill="none" stroke={guideColor} strokeWidth="0.55"
+                  filter={detScore >= 0.62 ? 'url(#glow)' : undefined} />
+
+                {/* 4 cardinal dots on the oval perimeter */}
+                <circle cx="80"  cy="4"  r="0.9" fill={guideColor} />
+                <circle cx="80"  cy="82" r="0.9" fill={guideColor} />
+                <circle cx="47"  cy="43" r="0.9" fill={guideColor} />
+                <circle cx="113" cy="43" r="0.9" fill={guideColor} />
+
+                {/* Direction chevron — appears outside the oval on the relevant side */}
+                {step === 1 && <path d="M37,43 L41,40 M37,43 L41,46" fill="none" stroke={guideColor} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />}
+                {step === 2 && <path d="M123,43 L119,40 M123,43 L119,46" fill="none" stroke={guideColor} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />}
+                {step === 3 && <path d="M80,87 L77,83 M80,87 L83,83" fill="none" stroke={guideColor} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />}
+                {step === 4 && <path d="M80,4 L77,8 M80,4 L83,8" fill="none" stroke={guideColor} strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" />}
+
+                {/* Status */}
+                <text x="80" y="88.5" textAnchor="middle" fontSize="4.2"
+                  fill={guideColor} fontFamily="'Plus Jakarta Sans','Inter',ui-sans-serif,sans-serif"
+                  fontWeight="300" letterSpacing="3">
+                  {guideStatus}
+                </text>
+              </svg>
             )}
 
             {phase === 'done' && (

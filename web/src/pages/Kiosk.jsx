@@ -848,25 +848,10 @@ export default function Kiosk() {
                 </select>
               </div>
             )}
-            <div className="text-center space-y-1">
+            <div className="text-center">
               <p className="text-xs text-navy-400">
                 Company: <span className="font-mono text-navy-300">{tenantCode}</span>
               </p>
-              <button
-                onClick={() => {
-                  if (!window.confirm('Reset kiosk? You will need to re-enter the company code.')) return
-                  clearTimeout(rafRef.current)
-                  streamRef.current?.getTracks().forEach(t => t.stop())
-                  localStorage.removeItem('kiosk_tenant')
-                  matcherRef.current = null
-                  setTenantCode('')
-                  setConfirmed(null)
-                  setPhaseSync('setup')
-                }}
-                className="text-xs text-navy-400 hover:text-navy-200 transition"
-              >
-                Reset / Change Company
-              </button>
             </div>
           </div>
         </div>
