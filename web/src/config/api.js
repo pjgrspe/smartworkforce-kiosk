@@ -251,4 +251,10 @@ export const approvePayrollRun  = (id)   => request('PATCH', `/payroll/${id}/app
 export const finalizePayrollRun = (id)   => request('PATCH', `/payroll/${id}/finalize`)
 export const deletePayrollRun   = (id)   => request('DELETE', `/payroll/${id}`)
 
+// ── Audit Logs ────────────────────────────────────────────────────
+export const getAuditLogs = (params = {}) => {
+  const qs = new URLSearchParams(params).toString()
+  return request('GET', `/audit-logs${qs ? '?' + qs : ''}`)
+}
+
 export { getToken, saveToken, clearToken }

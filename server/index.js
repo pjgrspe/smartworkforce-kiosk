@@ -49,6 +49,7 @@ app.use('/api/tenants',     require('./routes/tenants'));
 app.use('/api/payroll',     require('./routes/payroll'));
 app.use('/api/kiosk',       require('./routes/kiosk'));
 app.use('/api/sync',        require('./routes/sync'));
+app.use('/api/audit-logs',  require('./routes/auditLogs'));
 app.get('/api/health', (_, res) => res.json({
   status: 'ok',
   ts: new Date(),

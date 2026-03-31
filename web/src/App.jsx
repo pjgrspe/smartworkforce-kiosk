@@ -28,6 +28,7 @@ import PayrollRuns from './pages/PayrollRuns'
 import Users from './pages/Users'
 import Tenants from './pages/Tenants'
 import Profile from './pages/Profile'
+import AuditLogs from './pages/AuditLogs'
 
 // Wrap a page in the sidebar Layout
 function AdminPage({ children, roles }) {
@@ -114,6 +115,9 @@ function AppRoutes() {
       } />
       <Route path="/profile" element={
         <AdminPage><Profile /></AdminPage>
+      } />
+      <Route path="/audit-logs" element={
+        <AdminPage roles={['super_admin','client_admin','hr_payroll','auditor']}><AuditLogs /></AdminPage>
       } />
 
       {/* Legacy /admin → dashboard */}

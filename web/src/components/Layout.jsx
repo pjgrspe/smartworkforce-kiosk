@@ -95,6 +95,13 @@ const Icons = {
       <path d="M1.5 8.5h2.5M1.5 11h2.5" />
     </svg>
   ),
+  AuditLogs: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
+      <rect x="2" y="1" width="10" height="14" rx="0.5" />
+      <path d="M5 5h4M5 8h4M5 11h2" />
+      <path d="M11 10l1.5 1.5L15 8" />
+    </svg>
+  ),
   SignOut: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-[15px] h-[15px] shrink-0">
       <path d="M6 2.5H2.5A1.5 1.5 0 001 4v8a1.5 1.5 0 001.5 1.5H6M10.5 11.5l4-4-4-4M14.5 7.5H6" />
@@ -138,9 +145,10 @@ const NAV_GROUPS = [
   {
     label: 'System',
     items: [
-      { to: '/profile',  label: 'Profile',  Icon: Icons.Profile,  roles: null },
-      { to: '/users',    label: 'Users',    Icon: Icons.Users,    roles: ['super_admin', 'client_admin'] },
-      { to: '/tenants',  label: 'Tenants',  Icon: Icons.Tenants,  roles: ['super_admin'] },
+      { to: '/profile',     label: 'Profile',     Icon: Icons.Profile,    roles: null },
+      { to: '/users',       label: 'Users',       Icon: Icons.Users,      roles: ['super_admin', 'client_admin'] },
+      { to: '/tenants',     label: 'Tenants',     Icon: Icons.Tenants,    roles: ['super_admin'] },
+      { to: '/audit-logs',  label: 'Audit Logs',  Icon: Icons.AuditLogs,  roles: ['super_admin', 'client_admin', 'hr_payroll', 'auditor'] },
     ],
   },
 ]
