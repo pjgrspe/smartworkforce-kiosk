@@ -82,6 +82,24 @@ function SectionHeading({ children }) {
   return <h3 className="label-caps mt-5 mb-3 text-navy-300">{children}</h3>
 }
 
+function InfoField({ label, value, mono, span2 }) {
+  return (
+    <div className={span2 ? 'col-span-2' : ''}>
+      <p className="text-2xs text-navy-500 uppercase tracking-widest mb-0.5">{label}</p>
+      <p className={`text-xs ${mono ? 'font-mono' : ''} ${value ? 'text-navy-100' : 'text-navy-600'} truncate`}>{value || '—'}</p>
+    </div>
+  )
+}
+
+function InfoCard({ title, children, colSpan }) {
+  return (
+    <div className={`rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 ${colSpan || ''}`}>
+      <p className="label-caps border-b border-navy-700 pb-2">{title}</p>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
+    </div>
+  )
+}
+
 function Field({ label, children }) {
   return (
     <div>
@@ -129,74 +147,66 @@ function LeaveConfigFields({ form, setField }) {
   const leaveType = empType === 'regular_without_leaves' ? 'without_leaves'
                   : empType === 'regular_with_leaves'    ? 'with_leaves'
                   : cfg.leaveType || 'with_leaves'
-  const hasSl      = cfg.hasSl      !== false
-  const hasVl      = cfg.hasVl      !== false
+  const hasSl = cfg.hasSl !== false
+  const hasVl = cfg.hasVl !== false
 
   if (leaveType === 'without_leaves') {
-    return <p className="text-sm text-navy-400 py-2">This employee type has no leave access.</p>
+    return <p className="text-xs text-navy-400 py-1">This employee type has no leave access.</p>
   }
 
   return (
-    <div className="space-y-4">
-      {true && (
-        <div className="grid grid-cols-2 gap-4">
-          {/* Sick Leave */}
-          <div className="bg-navy-800 rounded-md border border-navy-500/40 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-navy-100">Sick Leave</span>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={hasSl}
-                  onChange={e => setField('leaveConfig.hasSl', e.target.checked)}
-                  className="accent-accent"
-                />
-                <span className="text-xs text-navy-300">Enabled</span>
-              </label>
-            </div>
-            {hasSl && (
-              <div>
-                <p className="label-caps mb-1">SL Quota (days/year)</p>
-                <input
-                  type="number" min="0"
-                  className="field-base w-full text-xs"
-                  placeholder="Blank = company default (5)"
-                  value={cfg.slQuota ?? ''}
-                  onChange={e => setField('leaveConfig.slQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Vacation Leave */}
-          <div className="bg-navy-800 rounded-md border border-navy-500/40 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-navy-100">Vacation Leave</span>
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={hasVl}
-                  onChange={e => setField('leaveConfig.hasVl', e.target.checked)}
-                  className="accent-accent"
-                />
-                <span className="text-xs text-navy-300">Enabled</span>
-              </label>
-            </div>
-            {hasVl && (
-              <div>
-                <p className="label-caps mb-1">VL Quota (days/year)</p>
-                <input
-                  type="number" min="0"
-                  className="field-base w-full text-xs"
-                  placeholder="Blank = company default (5)"
-                  value={cfg.vlQuota ?? ''}
-                  onChange={e => setField('leaveConfig.vlQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
-                />
-              </div>
-            )}
-          </div>
+    <div className="grid grid-cols-2 gap-4">
+      {/* Sick Leave */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="label-caps">Sick Leave</p>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hasSl}
+              onChange={e => setField('leaveConfig.hasSl', e.target.checked)}
+              className="accent-accent w-3.5 h-3.5"
+            />
+            <span className="text-2xs text-navy-300">{hasSl ? 'Enabled' : 'Disabled'}</span>
+          </label>
         </div>
-      )}
+        <div>
+          <p className="label-caps mb-1">SL Quota (days/year)</p>
+          <input
+            type="number" min="0"
+            className={`field-base w-full ${!hasSl ? 'opacity-40 pointer-events-none' : ''}`}
+            placeholder="Company default (5)"
+            value={cfg.slQuota ?? ''}
+            onChange={e => setField('leaveConfig.slQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
+          />
+        </div>
+      </div>
+
+      {/* Vacation Leave */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="label-caps">Vacation Leave</p>
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hasVl}
+              onChange={e => setField('leaveConfig.hasVl', e.target.checked)}
+              className="accent-accent w-3.5 h-3.5"
+            />
+            <span className="text-2xs text-navy-300">{hasVl ? 'Enabled' : 'Disabled'}</span>
+          </label>
+        </div>
+        <div>
+          <p className="label-caps mb-1">VL Quota (days/year)</p>
+          <input
+            type="number" min="0"
+            className={`field-base w-full ${!hasVl ? 'opacity-40 pointer-events-none' : ''}`}
+            placeholder="Company default (5)"
+            value={cfg.vlQuota ?? ''}
+            onChange={e => setField('leaveConfig.vlQuota', e.target.value !== '' ? parseInt(e.target.value) : null)}
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -1101,37 +1111,232 @@ export default function Employees() {
                     {group.map((emp, index) => {
                       const branch = branchById.get(emp.branchId?._id || emp.branchId)
                       const isEnrolled = hasFaceEnrollment(emp)
+                      const isExpanded = selectedEmployee?._id === emp._id
+                      const sup = employees.find(e => e._id === emp.reportsToId)
+                      const empStatus = emp.employment?.status || 'active'
+                      const statusVariant = empStatus === 'active' ? 'success' : empStatus === 'inactive' ? 'neutral' : 'danger'
+                      const initials = `${emp.firstName?.[0] || ''}${emp.lastName?.[0] || ''}`.toUpperCase()
                       return (
-                        <tr
-                          key={emp._id}
-                          className={`table-row cursor-pointer ${index % 2 !== 0 ? 'table-row-alt' : ''} ${selectedEmployee?._id === emp._id ? 'bg-accent/10' : ''}`}
-                          onClick={() => requestView(emp)}
-                        >
-                          <td className="px-4 py-2.5 font-mono text-2xs text-navy-300">{emp.employeeCode}</td>
-                          <td className="px-4 py-2.5 font-medium text-navy-100">{emp.firstName} {emp.lastName}</td>
-                          <td className="px-4 py-2.5 text-navy-300 font-mono">{emp.email || '—'}</td>
-                          <td className="px-4 py-2.5 text-navy-300">{emp.employment?.position || '—'}</td>
-                          <td className="px-4 py-2.5 text-navy-400">{branch?.name || '—'}</td>
-                          <td className="px-4 py-2.5">
-                            <Badge variant={STATUS_VARIANT[emp.employment?.status] || 'neutral'}>
-                              {emp.employment?.status || 'unknown'}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <Badge variant={isEnrolled ? 'success' : 'warning'}>
-                              {isEnrolled ? 'Enrolled' : 'Not Enrolled'}
-                            </Badge>
-                          </td>
-                          {canEdit && (
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              <div className="flex items-center gap-3">
-                                <button onClick={(event) => { event.stopPropagation(); requestEdit(emp) }} className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
-                                <button onClick={(event) => { event.stopPropagation(); requestFaceEnroll(emp) }} className="text-2xs text-navy-300 hover:text-navy-100 transition-colors">{isEnrolled ? 'Re-enroll Face' : 'Enroll Face'}</button>
-                                <button onClick={(event) => { event.stopPropagation(); requestDelete(emp._id) }} className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
-                              </div>
+                        <Fragment key={emp._id}>
+                          <tr
+                            className={`table-row cursor-pointer ${index % 2 !== 0 ? 'table-row-alt' : ''} ${isExpanded ? 'bg-accent/10' : ''}`}
+                            onClick={() => isExpanded ? setSelectedEmployee(null) : requestView(emp)}
+                          >
+                            <td className="px-4 py-2.5 font-mono text-2xs text-navy-300">{emp.employeeCode}</td>
+                            <td className="px-4 py-2.5 font-medium text-navy-100">{emp.firstName} {emp.lastName}</td>
+                            <td className="px-4 py-2.5 text-navy-300 font-mono">{emp.email || '—'}</td>
+                            <td className="px-4 py-2.5 text-navy-300">{emp.employment?.position || '—'}</td>
+                            <td className="px-4 py-2.5 text-navy-400">{branch?.name || '—'}</td>
+                            <td className="px-4 py-2.5">
+                              <Badge variant={STATUS_VARIANT[emp.employment?.status] || 'neutral'}>
+                                {emp.employment?.status || 'unknown'}
+                              </Badge>
                             </td>
+                            <td className="px-4 py-2.5">
+                              <Badge variant={isEnrolled ? 'success' : 'warning'}>
+                                {isEnrolled ? 'Enrolled' : 'Not Enrolled'}
+                              </Badge>
+                            </td>
+                            {canEdit && (
+                              <td className="px-4 py-2.5 whitespace-nowrap">
+                                <div className="flex items-center gap-3">
+                                  <button onClick={(event) => { event.stopPropagation(); requestEdit(emp) }} className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                                  <button onClick={(event) => { event.stopPropagation(); requestFaceEnroll(emp) }} className="text-2xs text-navy-300 hover:text-navy-100 transition-colors">{isEnrolled ? 'Re-enroll Face' : 'Enroll Face'}</button>
+                                  <button onClick={(event) => { event.stopPropagation(); requestDelete(emp._id) }} className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                                </div>
+                              </td>
+                            )}
+                          </tr>
+                          {isExpanded && (
+                            <tr className="bg-navy-800/60">
+                              <td colSpan={columnCount} className="px-6 py-5 border-t border-navy-500/40">
+                                {/* Header */}
+                                <div className="flex items-center justify-between gap-4 flex-wrap mb-4">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-full bg-accent/15 border border-accent/25 flex items-center justify-center flex-shrink-0">
+                                      <span className="text-sm font-bold text-accent tracking-wide">{initials}</span>
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-semibold text-navy-50 leading-tight">
+                                        {emp.firstName} {emp.middleName ? emp.middleName + ' ' : ''}{emp.lastName}
+                                      </p>
+                                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                        {emp.employeeCode && (
+                                          <span className="text-2xs font-mono text-navy-400 bg-navy-700 border border-navy-600 px-1.5 py-0.5 rounded">
+                                            {emp.employeeCode}
+                                          </span>
+                                        )}
+                                        <Badge variant={statusVariant}>{empStatus}</Badge>
+                                        {emp.employment?.type && (
+                                          <span className="text-2xs text-navy-400">
+                                            {EMP_TYPE_LABEL[emp.employment.type] || emp.employment.type}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  {canEdit && (
+                                    <div className="flex items-center gap-2 flex-shrink-0">
+                                      <Button size="sm" variant="secondary" onClick={() => requestEdit(emp)}>Edit</Button>
+                                      <Button size="sm" variant="danger" onClick={() => requestDelete(emp._id)}>Delete</Button>
+                                    </div>
+                                  )}
+                                </div>
+
+                                {/* Cards grid */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                                  <InfoCard title="Personal">
+                                    <InfoField label="Birth Date" value={formatDateValue(emp.dateOfBirth)} />
+                                    <InfoField label="Gender" value={emp.gender} />
+                                    <InfoField label="Email" value={emp.email} span2 />
+                                    <InfoField label="Mobile" value={emp.contactNumber} />
+                                    <InfoField label="Address" value={emp.address} span2 />
+                                  </InfoCard>
+
+                                  <InfoCard title="Employment">
+                                    <InfoField label="Position" value={emp.employment?.position} span2 />
+                                    <InfoField label="Date Hired" value={formatDateValue(emp.employment?.dateHired)} />
+                                    <InfoField label="Branch" value={branchById.get(emp.branchId?._id || emp.branchId)?.name} />
+                                    <InfoField label="Department" value={deptById.get(emp.departmentId?._id || emp.departmentId)?.name} />
+                                    <InfoField label="Schedule" value={scheduleById.get(emp.scheduleId?._id || emp.scheduleId)?.name} />
+                                    <InfoField label="Reports To" value={sup ? `${sup.firstName} ${sup.lastName}` : null} span2 />
+                                  </InfoCard>
+
+                                  <InfoCard title="Government IDs">
+                                    <InfoField label="TIN"        value={emp.govIds?.tin}        mono />
+                                    <InfoField label="SSS"        value={emp.govIds?.sss}        mono />
+                                    <InfoField label="PhilHealth" value={emp.govIds?.philHealth} mono />
+                                    <InfoField label="Pag-IBIG"   value={emp.govIds?.pagIbig}    mono />
+                                    <InfoField label="Bank"       value={emp.bank?.bankName} />
+                                    <InfoField label="Account #"  value={emp.bank?.accountNumber} mono />
+                                  </InfoCard>
+
+                                  {/* Leave Balance */}
+                                  <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                                    <div className="flex items-center justify-between border-b border-navy-700 pb-2">
+                                      <p className="label-caps">Leave Balance</p>
+                                      {leaveBalance?.year && <span className="text-2xs font-mono text-navy-500">{leaveBalance.year}</span>}
+                                    </div>
+                                    {leaveBalanceLoading ? (
+                                      <p className="text-2xs text-navy-500">Loading...</p>
+                                    ) : !leaveBalance || !leaveBalance.hasAccess ? (
+                                      <p className="text-2xs text-navy-500">No leave access configured.</p>
+                                    ) : (
+                                      <div className="space-y-3.5">
+                                        {[
+                                          { key: 'sick_leave',     label: 'Sick Leave',     data: leaveBalance.sick_leave },
+                                          { key: 'vacation_leave', label: 'Vacation Leave', data: leaveBalance.vacation_leave },
+                                        ].map(({ key, label, data }) => {
+                                          if (!data?.enabled) return (
+                                            <div key={key} className="flex justify-between items-center">
+                                              <span className="text-2xs text-navy-500">{label}</span>
+                                              <span className="text-2xs text-navy-600">Disabled</span>
+                                            </div>
+                                          )
+                                          const pct = data.quota > 0 ? data.remaining / data.quota : 0
+                                          const barColor = pct > 0.5 ? 'bg-signal-success' : pct > 0.25 ? 'bg-signal-warning' : 'bg-signal-danger'
+                                          const textColor = pct > 0.5 ? 'text-signal-success' : pct > 0.25 ? 'text-signal-warning' : 'text-signal-danger'
+                                          return (
+                                            <div key={key} className="space-y-1.5">
+                                              <div className="flex items-baseline justify-between">
+                                                <span className="text-2xs text-navy-400">{label}</span>
+                                                <span className={`text-sm font-bold tabular-nums ${textColor}`}>
+                                                  {data.remaining}
+                                                  <span className="text-2xs font-normal text-navy-500 ml-1">/ {data.quota} days</span>
+                                                </span>
+                                              </div>
+                                              <div className="h-1.5 w-full bg-navy-700 rounded-full overflow-hidden">
+                                                <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.max(0, Math.min(100, pct * 100))}%` }} />
+                                              </div>
+                                              <p className="text-2xs text-navy-600">{data.used} day{data.used !== 1 ? 's' : ''} used</p>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Face Enrollment */}
+                                  <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                                    <p className="label-caps border-b border-navy-700 pb-2">Face Enrollment</p>
+                                    <div className="flex items-center gap-3">
+                                      <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${isEnrolled ? 'bg-signal-success/15 border border-signal-success/30' : 'bg-navy-700 border border-navy-600'}`}>
+                                        <span className={`text-xs font-bold ${isEnrolled ? 'text-signal-success' : 'text-navy-500'}`}>
+                                          {isEnrolled ? '✓' : '—'}
+                                        </span>
+                                      </div>
+                                      <div>
+                                        <p className={`text-xs font-medium ${isEnrolled ? 'text-signal-success' : 'text-navy-400'}`}>
+                                          {isEnrolled ? 'Enrolled' : 'Not Enrolled'}
+                                        </p>
+                                        <p className="text-2xs text-navy-500 mt-0.5">
+                                          {isEnrolled ? 'Face data ready for kiosk.' : 'No face data saved yet.'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Documents */}
+                                  <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                                    <p className="label-caps border-b border-navy-700 pb-2">Documents</p>
+                                    {!emp.documents?.length ? (
+                                      <p className="text-2xs text-navy-500">No documents uploaded.</p>
+                                    ) : (
+                                      <div className="space-y-2">
+                                        {emp.documents.map(doc => {
+                                          const CAT = { tin: 'TIN', sss: 'SSS', philhealth: 'PhilHealth', pagibig: 'Pag-IBIG', bank: 'Bank', employment: 'Employment', other: 'Other' }
+                                          const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
+                                          return (
+                                            <div key={doc.id} className="flex items-center justify-between gap-2">
+                                              <div className="min-w-0">
+                                                <p className="text-2xs font-medium text-navy-100 truncate">{doc.label || doc.fileName}</p>
+                                                <p className="text-2xs text-navy-500">{CAT[doc.category] || doc.category}{kb ? ` · ${kb}` : ''}</p>
+                                              </div>
+                                              <Button variant="ghost" size="xs" onClick={() => handleDocDownload(doc)}>Download</Button>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {/* Day Offs */}
+                                  <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 md:col-span-2 xl:col-span-3">
+                                    <div className="flex items-center justify-between border-b border-navy-700 pb-2">
+                                      <p className="label-caps">Day Offs</p>
+                                      {canEdit && (
+                                        <button type="button"
+                                          onClick={() => { requestEdit(emp); setTimeout(() => setModalTab('dayoffs'), 50) }}
+                                          className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                                          Manage →
+                                        </button>
+                                      )}
+                                    </div>
+                                    {dayOffs.length === 0 ? (
+                                      <p className="text-2xs text-navy-500">No day offs scheduled.</p>
+                                    ) : (
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                                        {dayOffs.map(d => {
+                                          const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
+                                          const detail = d.type === 'custom' ? ` · ${d.startTime}–${d.endTime}` : ''
+                                          return (
+                                            <div key={d.id} className="flex items-start gap-2.5 bg-navy-700/40 border border-navy-700 rounded px-3 py-2">
+                                              <div className="flex-1 min-w-0">
+                                                <p className="text-2xs font-mono text-navy-200">{d.date}</p>
+                                                <p className="text-2xs text-accent mt-0.5">{TYPE_LABELS[d.type] || d.type}{detail}</p>
+                                                {d.reason && <p className="text-2xs text-navy-500 truncate mt-0.5">{d.reason}</p>}
+                                              </div>
+                                            </div>
+                                          )
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
                           )}
-                        </tr>
+                        </Fragment>
                       )
                     })}
                   </Fragment>
@@ -1139,218 +1344,7 @@ export default function Employees() {
               </tbody>
             </table>
           </div>
-        )}
-
-        {selectedEmployee && (() => {
-          const initials = `${selectedEmployee.firstName?.[0] || ''}${selectedEmployee.lastName?.[0] || ''}`.toUpperCase()
-          const empStatus = selectedEmployee.employment?.status || 'active'
-          const statusVariant = empStatus === 'active' ? 'success' : empStatus === 'inactive' ? 'neutral' : 'danger'
-          const sup = employees.find(e => e._id === selectedEmployee.reportsToId)
-
-          const Field = ({ label, value, mono, span2 }) => (
-            <div className={span2 ? 'col-span-2' : ''}>
-              <p className="text-2xs text-navy-500 uppercase tracking-widest mb-0.5">{label}</p>
-              <p className={`text-xs ${mono ? 'font-mono' : ''} ${value ? 'text-navy-100' : 'text-navy-600'} truncate`}>{value || '—'}</p>
-            </div>
-          )
-
-          const Card = ({ title, children, colSpan }) => (
-            <div className={`rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 ${colSpan || ''}`}>
-              <p className="label-caps border-b border-navy-700 pb-2">{title}</p>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
-            </div>
-          )
-
-          return (
-            <div className="mt-5 table-shell overflow-hidden">
-              {/* ── Header ── */}
-              <div className="px-5 py-4 border-b border-navy-700 flex items-center justify-between gap-4 flex-wrap bg-navy-800/30">
-                <div className="flex items-center gap-4">
-                  <div className="w-11 h-11 rounded-full bg-accent/15 border border-accent/25 flex items-center justify-center flex-shrink-0">
-                    <span className="text-sm font-bold text-accent tracking-wide">{initials}</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-navy-50 leading-tight">
-                      {selectedEmployee.firstName} {selectedEmployee.middleName ? selectedEmployee.middleName + ' ' : ''}{selectedEmployee.lastName}
-                    </p>
-                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                      {selectedEmployee.employeeCode && (
-                        <span className="text-2xs font-mono text-navy-400 bg-navy-700 border border-navy-600 px-1.5 py-0.5 rounded">
-                          {selectedEmployee.employeeCode}
-                        </span>
-                      )}
-                      <Badge variant={statusVariant}>{empStatus}</Badge>
-                      {selectedEmployee.employment?.type && (
-                        <span className="text-2xs text-navy-400">
-                          {EMP_TYPE_LABEL[selectedEmployee.employment.type] || selectedEmployee.employment.type}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                {canEdit && (
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <Button size="sm" variant="secondary" onClick={() => requestEdit(selectedEmployee)}>Edit</Button>
-                    <Button size="sm" variant="danger" onClick={() => requestDelete(selectedEmployee._id)}>Delete</Button>
-                  </div>
-                )}
-              </div>
-
-              {/* ── Cards grid ── */}
-              <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-
-                <Card title="Personal">
-                  <Field label="Birth Date" value={formatDateValue(selectedEmployee.dateOfBirth)} />
-                  <Field label="Gender" value={selectedEmployee.gender} />
-                  <Field label="Email" value={selectedEmployee.email} span2 />
-                  <Field label="Mobile" value={selectedEmployee.contactNumber} />
-                  <Field label="Address" value={selectedEmployee.address} span2 />
-                </Card>
-
-                <Card title="Employment">
-                  <Field label="Position" value={selectedEmployee.employment?.position} span2 />
-                  <Field label="Date Hired" value={formatDateValue(selectedEmployee.employment?.dateHired)} />
-                  <Field label="Branch" value={branchById.get(selectedEmployee.branchId?._id || selectedEmployee.branchId)?.name} />
-                  <Field label="Department" value={deptById.get(selectedEmployee.departmentId?._id || selectedEmployee.departmentId)?.name} />
-                  <Field label="Schedule" value={scheduleById.get(selectedEmployee.scheduleId?._id || selectedEmployee.scheduleId)?.name} />
-                  <Field label="Reports To" value={sup ? `${sup.firstName} ${sup.lastName}` : null} span2 />
-                </Card>
-
-                <Card title="Government IDs">
-                  <Field label="TIN"       value={selectedEmployee.govIds?.tin}        mono />
-                  <Field label="SSS"       value={selectedEmployee.govIds?.sss}        mono />
-                  <Field label="PhilHealth" value={selectedEmployee.govIds?.philHealth} mono />
-                  <Field label="Pag-IBIG"  value={selectedEmployee.govIds?.pagIbig}    mono />
-                  <Field label="Bank"      value={selectedEmployee.bank?.bankName} />
-                  <Field label="Account #" value={selectedEmployee.bank?.accountNumber} mono />
-                </Card>
-
-                {/* Leave Balance */}
-                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
-                  <div className="flex items-center justify-between border-b border-navy-700 pb-2">
-                    <p className="label-caps">Leave Balance</p>
-                    {leaveBalance?.year && <span className="text-2xs font-mono text-navy-500">{leaveBalance.year}</span>}
-                  </div>
-                  {leaveBalanceLoading ? (
-                    <p className="text-2xs text-navy-500">Loading...</p>
-                  ) : !leaveBalance || !leaveBalance.hasAccess ? (
-                    <p className="text-2xs text-navy-500">No leave access configured.</p>
-                  ) : (
-                    <div className="space-y-3.5">
-                      {[
-                        { key: 'sick_leave',     label: 'Sick Leave',     data: leaveBalance.sick_leave },
-                        { key: 'vacation_leave', label: 'Vacation Leave', data: leaveBalance.vacation_leave },
-                      ].map(({ key, label, data }) => {
-                        if (!data?.enabled) return (
-                          <div key={key} className="flex justify-between items-center">
-                            <span className="text-2xs text-navy-500">{label}</span>
-                            <span className="text-2xs text-navy-600">Disabled</span>
-                          </div>
-                        )
-                        const pct = data.quota > 0 ? data.remaining / data.quota : 0
-                        const barColor = pct > 0.5 ? 'bg-signal-success' : pct > 0.25 ? 'bg-signal-warning' : 'bg-signal-danger'
-                        const textColor = pct > 0.5 ? 'text-signal-success' : pct > 0.25 ? 'text-signal-warning' : 'text-signal-danger'
-                        return (
-                          <div key={key} className="space-y-1.5">
-                            <div className="flex items-baseline justify-between">
-                              <span className="text-2xs text-navy-400">{label}</span>
-                              <span className={`text-sm font-bold tabular-nums ${textColor}`}>
-                                {data.remaining}
-                                <span className="text-2xs font-normal text-navy-500 ml-1">/ {data.quota} days</span>
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full bg-navy-700 rounded-full overflow-hidden">
-                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.max(0, Math.min(100, pct * 100))}%` }} />
-                            </div>
-                            <p className="text-2xs text-navy-600">{data.used} day{data.used !== 1 ? 's' : ''} used</p>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Face Enrollment */}
-                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
-                  <p className="label-caps border-b border-navy-700 pb-2">Face Enrollment</p>
-                  <div className="flex items-center gap-3">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${hasFaceEnrollment(selectedEmployee) ? 'bg-signal-success/15 border border-signal-success/30' : 'bg-navy-700 border border-navy-600'}`}>
-                      <span className={`text-xs font-bold ${hasFaceEnrollment(selectedEmployee) ? 'text-signal-success' : 'text-navy-500'}`}>
-                        {hasFaceEnrollment(selectedEmployee) ? '✓' : '—'}
-                      </span>
-                    </div>
-                    <div>
-                      <p className={`text-xs font-medium ${hasFaceEnrollment(selectedEmployee) ? 'text-signal-success' : 'text-navy-400'}`}>
-                        {hasFaceEnrollment(selectedEmployee) ? 'Enrolled' : 'Not Enrolled'}
-                      </p>
-                      <p className="text-2xs text-navy-500 mt-0.5">
-                        {hasFaceEnrollment(selectedEmployee) ? 'Face data ready for kiosk.' : 'No face data saved yet.'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Documents */}
-                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
-                  <p className="label-caps border-b border-navy-700 pb-2">Documents</p>
-                  {!selectedEmployee.documents?.length ? (
-                    <p className="text-2xs text-navy-500">No documents uploaded.</p>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedEmployee.documents.map(doc => {
-                        const CAT = { tin: 'TIN', sss: 'SSS', philhealth: 'PhilHealth', pagibig: 'Pag-IBIG', bank: 'Bank', employment: 'Employment', other: 'Other' }
-                        const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
-                        return (
-                          <div key={doc.id} className="flex items-center justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-2xs font-medium text-navy-100 truncate">{doc.label || doc.fileName}</p>
-                              <p className="text-2xs text-navy-500">{CAT[doc.category] || doc.category}{kb ? ` · ${kb}` : ''}</p>
-                            </div>
-                            <Button variant="ghost" size="xs" onClick={() => handleDocDownload(doc)}>Download</Button>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-                {/* Day Offs */}
-                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 md:col-span-2 xl:col-span-3">
-                  <div className="flex items-center justify-between border-b border-navy-700 pb-2">
-                    <p className="label-caps">Day Offs</p>
-                    {canEdit && (
-                      <button type="button"
-                        onClick={() => { requestEdit(selectedEmployee); setTimeout(() => setModalTab('dayoffs'), 50) }}
-                        className="text-2xs text-accent hover:text-accent-200 transition-colors">
-                        Manage →
-                      </button>
-                    )}
-                  </div>
-                  {dayOffs.length === 0 ? (
-                    <p className="text-2xs text-navy-500">No day offs scheduled.</p>
-                  ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
-                      {dayOffs.map(d => {
-                        const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
-                        const detail = d.type === 'custom' ? ` · ${d.startTime}–${d.endTime}` : ''
-                        return (
-                          <div key={d.id} className="flex items-start gap-2.5 bg-navy-700/40 border border-navy-700 rounded px-3 py-2">
-                            <div className="flex-1 min-w-0">
-                              <p className="text-2xs font-mono text-navy-200">{d.date}</p>
-                              <p className="text-2xs text-accent mt-0.5">{TYPE_LABELS[d.type] || d.type}{detail}</p>
-                              {d.reason && <p className="text-2xs text-navy-500 truncate mt-0.5">{d.reason}</p>}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-
-              </div>
-            </div>
-          )
-        })()}
+        )}
       </div>
 
       {showModal && (

@@ -5,12 +5,13 @@ const { getHolidayRepository } = require('../repositories/holiday');
 
 router.use(authenticate);
 
-// GET /api/holidays?year=2025
+// GET /api/holidays?year=2025&branchId=xxx
 router.get('/', async (req, res) => {
   try {
     const repo = getHolidayRepository();
-    const year = req.query.year ? parseInt(req.query.year, 10) : undefined;
-    const holidays = await repo.listHolidays({ user: req.user, year: Number.isNaN(year) ? undefined : year });
+    const year     = req.query.year ? parseInt(req.query.year, 10) : undefined;
+    const branchId = req.query.branchId || undefined;
+    const holidays = await repo.listHolidays({ user: req.user, year: Number.isNaN(year) ? undefined : year, branchId });
     return res.json({ data: holidays });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -32,7 +33,11 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 router.post('/bulk', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
     const repo = getHolidayRepository();
-    const result = await repo.bulkCreateHolidays({ user: req.user, holidays: req.body.holidays || [] });
+    const result = await repo.bulkCreateHolidays({
+      user:     req.user,
+      holidays: req.body.holidays || [],
+      branchId: req.body.branchId || null,
+    });
     return res.status(201).json({ data: result, count: result.length });
   } catch (err) {
     return res.status(400).json({ error: err.message });

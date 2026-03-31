@@ -70,7 +70,7 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
   const pool = getPool();
   const employeeRes = await pool.query(
     `
-      SELECT id, tenant_id, employee_code, first_name, last_name, schedule_id
+      SELECT id, tenant_id, branch_id, employee_code, first_name, last_name, schedule_id
       FROM employees
       WHERE id = $1
       LIMIT 1
@@ -83,6 +83,7 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
   const employee = {
     _id: employeeRow.id,
     tenantId: employeeRow.tenant_id,
+    branchId: employeeRow.branch_id,
     employeeCode: employeeRow.employee_code,
     firstName: employeeRow.first_name,
     lastName: employeeRow.last_name,
@@ -105,13 +106,16 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
   const holidayRes = await pool.query(
     `
-      SELECT date, type
+      SELECT date, type, pay_multiplier
       FROM holidays
       WHERE tenant_id = $1
         AND date >= $2
         AND date <= $3
+        AND (branch_id IS NULL${employee.branchId ? ' OR branch_id = $4' : ''})
     `,
-    [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd)],
+    employee.branchId
+      ? [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd), employee.branchId]
+      : [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd)],
   );
   const holidays = holidayRes.rows;
 
@@ -203,9 +207,10 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     const isFullDayOff    = dayOff?.type === 'full_day' && !isPaidLeave;
     const isRestDay       = scheduleRestDay || isFullDayOff;
 
-    const holiday     = holidays.find(h => toManilaDateStr(h.date) === dateStr);
-    const isHoliday   = !!holiday;
-    const holidayType = holiday?.type || null;
+    const holiday            = holidays.find(h => toManilaDateStr(h.date) === dateStr);
+    const isHoliday          = !!holiday;
+    const holidayType        = holiday?.type || null;
+    const holidayPayMultiplier = holiday?.pay_multiplier != null ? Number(holiday.pay_multiplier) : null;
 
     const dayLogs = logsByDate[dateStr] || [];
     const inLog   = dayLogs.find(l => l.type === 'IN');
@@ -303,10 +308,11 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     }
 
     results.push({
-      date:            dateStr,
+      date:               dateStr,
       isRestDay,
       isHoliday,
       holidayType,
+      holidayPayMultiplier,
       isAbsent,
       isMissingOut,
       isPaidLeave,
