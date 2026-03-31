@@ -8,6 +8,7 @@ import {
   getBranches, getDepartments, getSchedules, enrollFace, verifyPassword,
   uploadEmployeeDocument, deleteEmployeeDocument, downloadEmployeeDocument,
   getEmployeeDayOffs, createEmployeeDayOff, deleteEmployeeDayOff,
+  getEmployeeLeaveBalance,
 } from '../config/api'
 import { useAuth } from '../contexts/AuthContext'
 import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
@@ -650,6 +651,8 @@ export default function Employees() {
   const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
   const [selectedEmployee, setSelectedEmployee] = useState(null)
   const [dayOffs, setDayOffs] = useState([])
+  const [leaveBalance, setLeaveBalance] = useState(null)
+  const [leaveBalanceLoading, setLeaveBalanceLoading] = useState(false)
   const [dayOffForm, setDayOffForm] = useState({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
   const [dayOffError, setDayOffError] = useState('')
   const [dayOffSaving, setDayOffSaving] = useState(false)
@@ -774,6 +777,15 @@ export default function Employees() {
     getEmployeeDayOffs(selectedEmployee._id).then(r => setDayOffs(r?.data || [])).catch(() => setDayOffs([]))
     setDayOffForm({ date: '', type: 'full_day', startTime: '', endTime: '', reason: '' })
     setDayOffError('')
+  }, [selectedEmployee?._id])
+
+  useEffect(() => {
+    if (!selectedEmployee?._id) { setLeaveBalance(null); return }
+    setLeaveBalanceLoading(true)
+    getEmployeeLeaveBalance(selectedEmployee._id)
+      .then(r => setLeaveBalance(r?.data || null))
+      .catch(() => setLeaveBalance(null))
+      .finally(() => setLeaveBalanceLoading(false))
   }, [selectedEmployee?._id])
 
   useEffect(() => { load() }, [load])
@@ -1129,135 +1141,216 @@ export default function Employees() {
           </div>
         )}
 
-        {selectedEmployee && (
-          <div className="mt-5 table-shell p-5">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <p className="label-caps">Employee Profile</p>
-                <p className="mt-1 text-sm font-semibold text-navy-100">
-                  {selectedEmployee.firstName} {selectedEmployee.lastName}
-                </p>
-                <p className="text-2xs text-navy-300 mt-1">{selectedEmployee.employeeCode || '—'}</p>
-              </div>
-              {canEdit && (
-                <div className="flex items-center gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => requestEdit(selectedEmployee)}>Edit Employee</Button>
-                  <Button size="sm" variant="danger" onClick={() => requestDelete(selectedEmployee._id)}>Delete Employee</Button>
-                </div>
-              )}
+        {selectedEmployee && (() => {
+          const initials = `${selectedEmployee.firstName?.[0] || ''}${selectedEmployee.lastName?.[0] || ''}`.toUpperCase()
+          const empStatus = selectedEmployee.employment?.status || 'active'
+          const statusVariant = empStatus === 'active' ? 'success' : empStatus === 'inactive' ? 'neutral' : 'danger'
+          const sup = employees.find(e => e._id === selectedEmployee.reportsToId)
+
+          const Field = ({ label, value, mono, span2 }) => (
+            <div className={span2 ? 'col-span-2' : ''}>
+              <p className="text-2xs text-navy-500 uppercase tracking-widest mb-0.5">{label}</p>
+              <p className={`text-xs ${mono ? 'font-mono' : ''} ${value ? 'text-navy-100' : 'text-navy-600'} truncate`}>{value || '—'}</p>
             </div>
+          )
 
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Personal</p>
-                <p className="mt-2 text-xs text-navy-100">Name: {selectedEmployee.firstName} {selectedEmployee.middleName || ''} {selectedEmployee.lastName}</p>
-                <p className="mt-1 text-xs text-navy-300">Birth Date: {formatDateValue(selectedEmployee.dateOfBirth)}</p>
-                <p className="mt-1 text-xs text-navy-300">Gender: {selectedEmployee.gender || '—'}</p>
-              </div>
+          const Card = ({ title, children, colSpan }) => (
+            <div className={`rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 ${colSpan || ''}`}>
+              <p className="label-caps border-b border-navy-700 pb-2">{title}</p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-3">{children}</div>
+            </div>
+          )
 
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Contact</p>
-                <p className="mt-2 text-xs text-navy-100 break-all">Email: {selectedEmployee.email || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Mobile: {selectedEmployee.contactNumber || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Address: {selectedEmployee.address || '—'}</p>
-              </div>
-
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Employment</p>
-                <p className="mt-2 text-xs text-navy-100">Position: {selectedEmployee.employment?.position || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Status: {selectedEmployee.employment?.status || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Type: {EMP_TYPE_LABEL[selectedEmployee.employment?.type] || selectedEmployee.employment?.type || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Date Hired: {formatDateValue(selectedEmployee.employment?.dateHired)}</p>
-              </div>
-
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Org Assignment</p>
-                <p className="mt-2 text-xs text-navy-100">Branch: {branchById.get(selectedEmployee.branchId?._id || selectedEmployee.branchId)?.name || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Department: {deptById.get(selectedEmployee.departmentId?._id || selectedEmployee.departmentId)?.name || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Schedule: {scheduleById.get(selectedEmployee.scheduleId?._id || selectedEmployee.scheduleId)?.name || '—'}</p>
-                {(() => {
-                  const sup = employees.find(e => e._id === selectedEmployee.reportsToId)
-                  return <p className="mt-1 text-xs text-navy-300">Reports To: {sup ? `${sup.firstName} ${sup.lastName}` : '—'}</p>
-                })()}
-              </div>
-
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Government IDs</p>
-                <p className="mt-2 text-xs text-navy-100">TIN: {selectedEmployee.govIds?.tin || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">SSS: {selectedEmployee.govIds?.sss || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">PhilHealth: {selectedEmployee.govIds?.philHealth || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Pag-IBIG: {selectedEmployee.govIds?.pagIbig || '—'}</p>
-              </div>
-
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Bank</p>
-                <p className="mt-2 text-xs text-navy-100">Bank: {selectedEmployee.bank?.bankName || '—'}</p>
-                <p className="mt-1 text-xs text-navy-300">Account #: {selectedEmployee.bank?.accountNumber || '—'}</p>
-              </div>
-
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Documents</p>
-                {(!selectedEmployee.documents?.length) ? (
-                  <p className="mt-2 text-2xs text-navy-400">No documents uploaded.</p>
-                ) : (
-                  <div className="mt-2 space-y-2">
-                    {selectedEmployee.documents.map(doc => {
-                      const CAT = { tin: 'TIN', sss: 'SSS', philhealth: 'PhilHealth', pagibig: 'Pag-IBIG', bank: 'Bank', employment: 'Employment', other: 'Other' }
-                      const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
-                      return (
-                        <div key={doc.id} className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-2xs font-medium text-navy-100 truncate">{doc.label || doc.fileName}</p>
-                            <p className="text-2xs text-navy-400">{CAT[doc.category] || doc.category}{kb ? ` · ${kb}` : ''}</p>
-                          </div>
-                          <Button variant="ghost" size="xs" onClick={() => handleDocDownload(doc)}>Download</Button>
-                        </div>
-                      )
-                    })}
+          return (
+            <div className="mt-5 table-shell overflow-hidden">
+              {/* ── Header ── */}
+              <div className="px-5 py-4 border-b border-navy-700 flex items-center justify-between gap-4 flex-wrap bg-navy-800/30">
+                <div className="flex items-center gap-4">
+                  <div className="w-11 h-11 rounded-full bg-accent/15 border border-accent/25 flex items-center justify-center flex-shrink-0">
+                    <span className="text-sm font-bold text-accent tracking-wide">{initials}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-navy-50 leading-tight">
+                      {selectedEmployee.firstName} {selectedEmployee.middleName ? selectedEmployee.middleName + ' ' : ''}{selectedEmployee.lastName}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      {selectedEmployee.employeeCode && (
+                        <span className="text-2xs font-mono text-navy-400 bg-navy-700 border border-navy-600 px-1.5 py-0.5 rounded">
+                          {selectedEmployee.employeeCode}
+                        </span>
+                      )}
+                      <Badge variant={statusVariant}>{empStatus}</Badge>
+                      {selectedEmployee.employment?.type && (
+                        <span className="text-2xs text-navy-400">
+                          {EMP_TYPE_LABEL[selectedEmployee.employment.type] || selectedEmployee.employment.type}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                {canEdit && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <Button size="sm" variant="secondary" onClick={() => requestEdit(selectedEmployee)}>Edit</Button>
+                    <Button size="sm" variant="danger" onClick={() => requestDelete(selectedEmployee._id)}>Delete</Button>
                   </div>
                 )}
               </div>
 
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3 md:col-span-2 xl:col-span-3">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="label-caps">Day Offs</p>
-                  {canEdit && (
-                    <button type="button"
-                      onClick={() => { requestEdit(selectedEmployee); setTimeout(() => setModalTab('dayoffs'), 50) }}
-                      className="text-2xs text-accent hover:text-accent-200 transition-colors">
-                      Manage →
-                    </button>
+              {/* ── Cards grid ── */}
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+
+                <Card title="Personal">
+                  <Field label="Birth Date" value={formatDateValue(selectedEmployee.dateOfBirth)} />
+                  <Field label="Gender" value={selectedEmployee.gender} />
+                  <Field label="Email" value={selectedEmployee.email} span2 />
+                  <Field label="Mobile" value={selectedEmployee.contactNumber} />
+                  <Field label="Address" value={selectedEmployee.address} span2 />
+                </Card>
+
+                <Card title="Employment">
+                  <Field label="Position" value={selectedEmployee.employment?.position} span2 />
+                  <Field label="Date Hired" value={formatDateValue(selectedEmployee.employment?.dateHired)} />
+                  <Field label="Branch" value={branchById.get(selectedEmployee.branchId?._id || selectedEmployee.branchId)?.name} />
+                  <Field label="Department" value={deptById.get(selectedEmployee.departmentId?._id || selectedEmployee.departmentId)?.name} />
+                  <Field label="Schedule" value={scheduleById.get(selectedEmployee.scheduleId?._id || selectedEmployee.scheduleId)?.name} />
+                  <Field label="Reports To" value={sup ? `${sup.firstName} ${sup.lastName}` : null} span2 />
+                </Card>
+
+                <Card title="Government IDs">
+                  <Field label="TIN"       value={selectedEmployee.govIds?.tin}        mono />
+                  <Field label="SSS"       value={selectedEmployee.govIds?.sss}        mono />
+                  <Field label="PhilHealth" value={selectedEmployee.govIds?.philHealth} mono />
+                  <Field label="Pag-IBIG"  value={selectedEmployee.govIds?.pagIbig}    mono />
+                  <Field label="Bank"      value={selectedEmployee.bank?.bankName} />
+                  <Field label="Account #" value={selectedEmployee.bank?.accountNumber} mono />
+                </Card>
+
+                {/* Leave Balance */}
+                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                  <div className="flex items-center justify-between border-b border-navy-700 pb-2">
+                    <p className="label-caps">Leave Balance</p>
+                    {leaveBalance?.year && <span className="text-2xs font-mono text-navy-500">{leaveBalance.year}</span>}
+                  </div>
+                  {leaveBalanceLoading ? (
+                    <p className="text-2xs text-navy-500">Loading...</p>
+                  ) : !leaveBalance || !leaveBalance.hasAccess ? (
+                    <p className="text-2xs text-navy-500">No leave access configured.</p>
+                  ) : (
+                    <div className="space-y-3.5">
+                      {[
+                        { key: 'sick_leave',     label: 'Sick Leave',     data: leaveBalance.sick_leave },
+                        { key: 'vacation_leave', label: 'Vacation Leave', data: leaveBalance.vacation_leave },
+                      ].map(({ key, label, data }) => {
+                        if (!data?.enabled) return (
+                          <div key={key} className="flex justify-between items-center">
+                            <span className="text-2xs text-navy-500">{label}</span>
+                            <span className="text-2xs text-navy-600">Disabled</span>
+                          </div>
+                        )
+                        const pct = data.quota > 0 ? data.remaining / data.quota : 0
+                        const barColor = pct > 0.5 ? 'bg-signal-success' : pct > 0.25 ? 'bg-signal-warning' : 'bg-signal-danger'
+                        const textColor = pct > 0.5 ? 'text-signal-success' : pct > 0.25 ? 'text-signal-warning' : 'text-signal-danger'
+                        return (
+                          <div key={key} className="space-y-1.5">
+                            <div className="flex items-baseline justify-between">
+                              <span className="text-2xs text-navy-400">{label}</span>
+                              <span className={`text-sm font-bold tabular-nums ${textColor}`}>
+                                {data.remaining}
+                                <span className="text-2xs font-normal text-navy-500 ml-1">/ {data.quota} days</span>
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-navy-700 rounded-full overflow-hidden">
+                              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${Math.max(0, Math.min(100, pct * 100))}%` }} />
+                            </div>
+                            <p className="text-2xs text-navy-600">{data.used} day{data.used !== 1 ? 's' : ''} used</p>
+                          </div>
+                        )
+                      })}
+                    </div>
                   )}
                 </div>
-                {dayOffs.length === 0 ? (
-                  <p className="text-2xs text-navy-400">No day offs scheduled.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {dayOffs.map(d => {
-                      const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
-                      const detail = d.type === 'custom' ? ` (${d.startTime}–${d.endTime})` : ''
-                      return (
-                        <div key={d.id} className="flex items-center gap-2 text-2xs">
-                          <span className="font-mono text-navy-200">{d.date}</span>
-                          <span className="text-accent">{TYPE_LABELS[d.type] || d.type}{detail}</span>
-                          {d.reason && <span className="text-navy-400 truncate">— {d.reason}</span>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
 
-              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
-                <p className="label-caps">Face Enrollment</p>
-                <p className="mt-2 text-xs text-navy-100">Status: {hasFaceEnrollment(selectedEmployee) ? 'Enrolled' : 'Not Enrolled'}</p>
-                <p className="mt-1 text-xs text-navy-300">
-                  {hasFaceEnrollment(selectedEmployee) ? 'Face data is available for kiosk recognition.' : 'No face data saved yet.'}
-                </p>
+                {/* Face Enrollment */}
+                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                  <p className="label-caps border-b border-navy-700 pb-2">Face Enrollment</p>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${hasFaceEnrollment(selectedEmployee) ? 'bg-signal-success/15 border border-signal-success/30' : 'bg-navy-700 border border-navy-600'}`}>
+                      <span className={`text-xs font-bold ${hasFaceEnrollment(selectedEmployee) ? 'text-signal-success' : 'text-navy-500'}`}>
+                        {hasFaceEnrollment(selectedEmployee) ? '✓' : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <p className={`text-xs font-medium ${hasFaceEnrollment(selectedEmployee) ? 'text-signal-success' : 'text-navy-400'}`}>
+                        {hasFaceEnrollment(selectedEmployee) ? 'Enrolled' : 'Not Enrolled'}
+                      </p>
+                      <p className="text-2xs text-navy-500 mt-0.5">
+                        {hasFaceEnrollment(selectedEmployee) ? 'Face data ready for kiosk.' : 'No face data saved yet.'}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Documents */}
+                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3">
+                  <p className="label-caps border-b border-navy-700 pb-2">Documents</p>
+                  {!selectedEmployee.documents?.length ? (
+                    <p className="text-2xs text-navy-500">No documents uploaded.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {selectedEmployee.documents.map(doc => {
+                        const CAT = { tin: 'TIN', sss: 'SSS', philhealth: 'PhilHealth', pagibig: 'Pag-IBIG', bank: 'Bank', employment: 'Employment', other: 'Other' }
+                        const kb = doc.size ? `${(doc.size / 1024).toFixed(0)} KB` : ''
+                        return (
+                          <div key={doc.id} className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="text-2xs font-medium text-navy-100 truncate">{doc.label || doc.fileName}</p>
+                              <p className="text-2xs text-navy-500">{CAT[doc.category] || doc.category}{kb ? ` · ${kb}` : ''}</p>
+                            </div>
+                            <Button variant="ghost" size="xs" onClick={() => handleDocDownload(doc)}>Download</Button>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Day Offs */}
+                <div className="rounded-lg border border-navy-600/70 bg-navy-800/50 px-4 py-4 flex flex-col gap-3 md:col-span-2 xl:col-span-3">
+                  <div className="flex items-center justify-between border-b border-navy-700 pb-2">
+                    <p className="label-caps">Day Offs</p>
+                    {canEdit && (
+                      <button type="button"
+                        onClick={() => { requestEdit(selectedEmployee); setTimeout(() => setModalTab('dayoffs'), 50) }}
+                        className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                        Manage →
+                      </button>
+                    )}
+                  </div>
+                  {dayOffs.length === 0 ? (
+                    <p className="text-2xs text-navy-500">No day offs scheduled.</p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
+                      {dayOffs.map(d => {
+                        const TYPE_LABELS = { full_day: 'Full Day', half_day_am: 'Half Day AM', half_day_pm: 'Half Day PM', custom: 'Custom' }
+                        const detail = d.type === 'custom' ? ` · ${d.startTime}–${d.endTime}` : ''
+                        return (
+                          <div key={d.id} className="flex items-start gap-2.5 bg-navy-700/40 border border-navy-700 rounded px-3 py-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-2xs font-mono text-navy-200">{d.date}</p>
+                              <p className="text-2xs text-accent mt-0.5">{TYPE_LABELS[d.type] || d.type}{detail}</p>
+                              {d.reason && <p className="text-2xs text-navy-500 truncate mt-0.5">{d.reason}</p>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
               </div>
             </div>
-          </div>
-        )}
+          )
+        })()}
       </div>
 
       {showModal && (
