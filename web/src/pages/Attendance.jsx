@@ -2,37 +2,79 @@
  * Attendance Page — logs with date/employee filters + exception badges.
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import { getAttendance, getEmployees } from '../config/api'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { getAttendance, getEmployees, getBranches, createCorrection } from '../config/api'
+import { fmtDate, fmtTime, employeeName } from '../lib/format'
+import Badge from '../components/ui/Badge'
+import Spinner from '../components/ui/Spinner'
+import { NewCorrectionModal } from './Corrections'
+import { useAuth } from '../contexts/AuthContext'
 
-const TYPE_BADGE = {
-  IN:         'bg-green-100 text-green-700',
-  OUT:        'bg-red-100 text-red-700',
-  BREAK_IN:   'bg-yellow-100 text-yellow-700',
-  BREAK_OUT:  'bg-blue-100 text-blue-700',
+const TYPE_VARIANT = {
+  IN:        'IN',
+  OUT:       'OUT',
+  BREAK_IN:  'warning',
+  BREAK_OUT: 'info',
+}
+const TYPE_LABEL = { IN: 'IN', OUT: 'OUT', BREAK_IN: 'Start Break', BREAK_OUT: 'End Break' }
+
+const SOURCE_LABEL = {
+  face_kiosk:       'Kiosk: Facial',
+  web:              'Web',
+  admin_correction: 'Correction',
 }
 
-const SOURCE_BADGE = {
-  face_kiosk:       'bg-purple-50 text-purple-700',
-  web:              'bg-gray-100 text-gray-600',
-  admin_correction: 'bg-orange-100 text-orange-700',
+const fieldCls = `
+  h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100
+  placeholder:text-navy-400 focus:outline-none focus:border-accent rounded-md
+`
+
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
 }
 
-function Badge({ text, color }) {
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{text}</span>
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
 }
+
+function toTimeHHmm(ts) {
+  const d = new Date(ts)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
 
 export default function Attendance() {
+  const { user } = useAuth()
+  const canCorrect = ['super_admin', 'client_admin', 'hr_payroll', 'branch_manager'].includes(user?.role)
+  const [activeTab,  setActiveTab]  = useState('logs')
   const [logs,       setLogs]       = useState([])
   const [employees,  setEmployees]  = useState([])
   const [loading,    setLoading]    = useState(false)
-  const [filters,    setFilters]    = useState({
+  const [exporting,  setExporting]  = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
+  const [filters,   setFilters]   = useState({
     employeeId: '',
-    from: new Date().toISOString().slice(0, 10),
-    to:   new Date().toISOString().slice(0, 10)
+    from: today,
+    to:   today,
   })
+  const [summaryDate,    setSummaryDate]    = useState(today)
+  const [summaryLogs,    setSummaryLogs]    = useState([])
+  const [summaryLoading, setSummaryLoading] = useState(false)
+  const [branches,       setBranches]       = useState([])
+  const [empSearch, setEmpSearch] = useState('')
+  const [empPickerOpen, setEmpPickerOpen] = useState(false)
   const [page, setPage] = useState(1)
+  const { col, dir, toggle } = useSortable('timestamp', 'desc')
   const PAGE_SIZE = 50
+  const FETCH_LIMIT = 5000
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -43,8 +85,8 @@ export default function Attendance() {
           ...(filters.employeeId ? { employeeId: filters.employeeId } : {}),
           ...(filters.from ? { start_date: filters.from } : {}),
           ...(filters.to   ? { end_date:   filters.to   } : {}),
-          limit: 500
-        })
+          limit: FETCH_LIMIT,
+        }),
       ])
       setEmployees(empRes?.data || [])
       setLogs(logRes?.data     || [])
@@ -58,111 +100,598 @@ export default function Attendance() {
 
   useEffect(() => { loadData() }, [loadData])
 
-  const paginated = logs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-  const totalPages = Math.ceil(logs.length / PAGE_SIZE)
+  const loadSummary = useCallback(async () => {
+    setSummaryLoading(true)
+    try {
+      const [empRes, logRes, branchRes] = await Promise.all([
+        getEmployees(),
+        getAttendance({ start_date: summaryDate, end_date: summaryDate, limit: 5000 }),
+        getBranches(),
+      ])
+      setEmployees(empRes?.data || [])
+      setSummaryLogs(logRes?.data || [])
+      setBranches(branchRes?.data || [])
+    } catch (err) { console.error(err) }
+    finally { setSummaryLoading(false) }
+  }, [summaryDate])
+
+  useEffect(() => { if (activeTab === 'summary') loadSummary() }, [activeTab, loadSummary])
+
+  const sortedLogs = useMemo(() => {
+    const safeText = (value) => String(value || '').toLowerCase()
+    const safeNum = (value) => (Number.isFinite(Number(value)) ? Number(value) : -1)
+
+    const list = [...logs]
+    list.sort((a, b) => {
+      let left = 0
+      let right = 0
+
+      switch (col) {
+        case 'employee':
+          left = safeText(employeeName(a.employeeId))
+          right = safeText(employeeName(b.employeeId))
+          break
+        case 'type':
+          left = safeText(a.type)
+          right = safeText(b.type)
+          break
+        case 'source':
+          left = safeText(SOURCE_LABEL[a.source] ?? a.source)
+          right = safeText(SOURCE_LABEL[b.source] ?? b.source)
+          break
+        case 'timestamp':
+        default:
+          left = new Date(a.timestamp).getTime()
+          right = new Date(b.timestamp).getTime()
+          break
+      }
+
+      let comparison = 0
+      if (typeof left === 'string' || typeof right === 'string') {
+        comparison = String(left).localeCompare(String(right))
+      } else {
+        comparison = Number(left) - Number(right)
+      }
+
+      if (comparison !== 0) {
+        return dir === 'asc' ? comparison : -comparison
+      }
+
+      // Stable fallback: always keep deterministic newest-first by timestamp when values tie
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    })
+
+    return list
+  }, [logs, col, dir])
+
+  useEffect(() => {
+    setPage(1)
+  }, [col, dir])
+
+  const paginated  = sortedLogs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.ceil(sortedLogs.length / PAGE_SIZE)
+
+  const { summaryRows, onBreakRows } = useMemo(() => {
+    // Group all logs by employee, sorted ascending by time
+    const allByEmp = {}
+    summaryLogs.forEach(l => {
+      const id = l.employeeId?._id || l.employeeId
+      if (!allByEmp[id]) allByEmp[id] = []
+      allByEmp[id].push(l)
+    })
+    Object.values(allByEmp).forEach(arr => arr.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp)))
+
+    const rows = employees
+      .filter(e => e.employment?.status === 'active')
+      .map(emp => {
+        const empLogs = allByEmp[emp._id] || []
+        const inLog   = empLogs.find(l => l.type === 'IN')
+        const lastLog = empLogs[empLogs.length - 1]
+        const ex      = inLog?.exceptions || {}
+        const isOnBreak = inLog && lastLog?.type === 'BREAK_IN'
+        const status = !inLog ? 'absent' : ex.isLate ? 'late' : 'present'
+        return {
+          emp, status, isOnBreak,
+          timeIn:      inLog ? fmtTime(inLog.timestamp) : null,
+          breakSince:  isOnBreak ? fmtTime(lastLog.timestamp) : null,
+          lateMinutes: ex.lateMinutes || 0,
+        }
+      })
+
+    const summaryRows = rows
+      .sort((a, b) => {
+        const order = { late: 0, absent: 1, present: 2 }
+        if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status]
+        return `${a.emp.lastName} ${a.emp.firstName}`.localeCompare(`${b.emp.lastName} ${b.emp.firstName}`)
+      })
+
+    const onBreakRows = rows
+      .filter(r => r.isOnBreak)
+      .sort((a, b) => `${a.emp.lastName} ${a.emp.firstName}`.localeCompare(`${b.emp.lastName} ${b.emp.firstName}`))
+
+    return { summaryRows, onBreakRows }
+  }, [summaryLogs, employees])
+
+  const buildExcelFileName = () => {
+    const from = filters.from || 'start'
+    const to = filters.to || 'end'
+    const selected = employees.find((employee) => employee._id === filters.employeeId)
+    const employeeTag = selected
+      ? `${selected.firstName || ''}-${selected.lastName || ''}`.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      : 'all-employees'
+    return `attendance-report-${from}-to-${to}-${employeeTag}.xlsx`
+  }
+
+  const handleExportExcel = async () => {
+    if (!sortedLogs.length || exporting) return
+
+    setExporting(true)
+    try {
+      const XLSXModule = await import('xlsx-js-style')
+      const XLSX = XLSXModule.default || XLSXModule
+
+      const exportLogs = [...sortedLogs].sort((a, b) => {
+        const employeeA = employeeName(a.employeeId).toLowerCase()
+        const employeeB = employeeName(b.employeeId).toLowerCase()
+        if (employeeA !== employeeB) return employeeA.localeCompare(employeeB)
+        return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      })
+
+      const rows = exportLogs.map((log) => {
+        const exception = log.exceptions || {}
+        return {
+          Employee: employeeName(log.employeeId),
+          Date: fmtDate(log.timestamp),
+          Time: fmtTime(log.timestamp),
+          Type: log.type || '',
+          Source: SOURCE_LABEL[log.source] ?? log.source ?? '',
+          Confidence: log.confidenceScore != null ? `${(log.confidenceScore * 100).toFixed(0)}%` : '',
+          'Late Min': exception.lateMinutes || 0,
+          'Undertime Min': exception.undertimeMinutes || 0,
+          'OT Min': exception.overtimeMinutes || 0,
+          'Missing Out': exception.isMissingOut ? 'Yes' : 'No',
+          Synced: log.synced ? 'Yes' : 'No',
+          Notes: log.notes || '',
+        }
+      })
+
+      const workbook = XLSX.utils.book_new()
+      const headerRows = [
+        ['Attendance Report'],
+        [`Period: ${filters.from || 'N/A'} to ${filters.to || 'N/A'}`],
+        [`Employee Filter: ${filters.employeeId ? (employees.find((employee) => employee._id === filters.employeeId) ? `${employees.find((employee) => employee._id === filters.employeeId).firstName} ${employees.find((employee) => employee._id === filters.employeeId).lastName}` : 'Selected employee') : 'All employees'}`],
+        [`Records: ${rows.length}`],
+        [],
+      ]
+
+      const worksheet = XLSX.utils.aoa_to_sheet(headerRows)
+      XLSX.utils.sheet_add_json(worksheet, rows, { origin: 'A6', skipHeader: false })
+
+      worksheet['!cols'] = [
+        { wch: 24 }, // Employee
+        { wch: 13 }, // Date
+        { wch: 10 }, // Time
+        { wch: 10 }, // Type
+        { wch: 16 }, // Source
+        { wch: 11 }, // Confidence
+        { wch: 10 }, // Late
+        { wch: 13 }, // Undertime
+        { wch: 9 },  // OT
+        { wch: 12 }, // Missing out
+        { wch: 8 },  // Synced
+        { wch: 30 }, // Notes
+      ]
+
+      worksheet['!merges'] = [
+        XLSX.utils.decode_range('A1:F1'),
+      ]
+
+      const headerRowIndex = 6
+      const lastDataRow = headerRowIndex + rows.length
+      worksheet['!autofilter'] = { ref: `A${headerRowIndex}:L${Math.max(headerRowIndex, lastDataRow)}` }
+      worksheet['!freeze'] = { xSplit: 0, ySplit: headerRowIndex, topLeftCell: `A${headerRowIndex + 1}`, activePane: 'bottomLeft', state: 'frozen' }
+
+      const baseBorder = {
+        top: { style: 'thin', color: { rgb: 'D1D8E0' } },
+        bottom: { style: 'thin', color: { rgb: 'D1D8E0' } },
+        left: { style: 'thin', color: { rgb: 'D1D8E0' } },
+        right: { style: 'thin', color: { rgb: 'D1D8E0' } },
+      }
+
+      const styleCell = (cellRef, style) => {
+        if (!worksheet[cellRef]) return
+        worksheet[cellRef].s = {
+          ...(worksheet[cellRef].s || {}),
+          ...style,
+        }
+      }
+
+      styleCell('A1', {
+        font: { bold: true, sz: 16, color: { rgb: 'FFFFFF' } },
+        fill: { fgColor: { rgb: '1E4C85' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+      })
+
+      for (let r = 2; r <= 4; r += 1) {
+        styleCell(`A${r}`, {
+          font: { bold: r === 4, color: { rgb: '334E68' } },
+          alignment: { horizontal: 'left', vertical: 'center' },
+        })
+      }
+
+      for (let c = 0; c < 12; c += 1) {
+        const ref = XLSX.utils.encode_cell({ c, r: headerRowIndex - 1 })
+        styleCell(ref, {
+          font: { bold: true, color: { rgb: 'FFFFFF' } },
+          fill: { fgColor: { rgb: '274E7A' } },
+          alignment: { horizontal: 'center', vertical: 'center' },
+          border: baseBorder,
+        })
+      }
+
+      let lastEmployee = ''
+      for (let row = headerRowIndex + 1; row <= lastDataRow; row += 1) {
+        const employeeRef = `A${row}`
+        const employeeValue = worksheet[employeeRef]?.v || ''
+        const isNewEmployee = employeeValue !== lastEmployee
+        lastEmployee = employeeValue
+
+        for (let c = 0; c < 12; c += 1) {
+          const ref = XLSX.utils.encode_cell({ c, r: row - 1 })
+          const numericCols = [6, 7, 8]
+          styleCell(ref, {
+            fill: { fgColor: { rgb: isNewEmployee ? 'EEF3FA' : (row % 2 === 0 ? 'FFFFFF' : 'F8FAFD') } },
+            alignment: {
+              horizontal: numericCols.includes(c) ? 'right' : c === 5 ? 'center' : 'left',
+              vertical: 'center',
+              wrapText: c === 11,
+            },
+            border: {
+              ...baseBorder,
+              top: {
+                style: isNewEmployee ? 'medium' : 'thin',
+                color: { rgb: isNewEmployee ? '9EB6CE' : 'D1D8E0' },
+              },
+            },
+            font: c === 0 && isNewEmployee
+              ? { bold: true, color: { rgb: '12344D' } }
+              : { color: { rgb: '334E68' } },
+          })
+          if (numericCols.includes(c)) {
+            styleCell(ref, { numFmt: '0' })
+          }
+        }
+      }
+
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Attendance Logs')
+      XLSX.writeFile(workbook, buildExcelFileName())
+    } catch (error) {
+      console.error('Attendance export failed:', error)
+      window.alert(error.message || 'Failed to export attendance report')
+    } finally {
+      setExporting(false)
+    }
+  }
 
   return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Attendance Logs</h2>
+    <div className="flex-1 flex flex-col min-h-0">
 
-      {/* Filters */}
-      <div className="bg-white rounded-xl shadow-sm border p-4 mb-6 flex flex-wrap gap-4 items-end">
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">From</label>
-          <input type="date" className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            value={filters.from}
-            onChange={e => setFilters(p => ({ ...p, from: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">To</label>
-          <input type="date" className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            value={filters.to}
-            onChange={e => setFilters(p => ({ ...p, to: e.target.value }))}
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Employee</label>
-          <select className="border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            value={filters.employeeId}
-            onChange={e => setFilters(p => ({ ...p, employeeId: e.target.value }))}>
-            <option value="">All employees</option>
-            {employees.map(e => (
-              <option key={e._id} value={e._id}>{e.firstName} {e.lastName}</option>
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3.5
+                      border-b border-navy-500 bg-navy-800">
+        <div className="flex items-center gap-4">
+          <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">Attendance</h1>
+          <div className="flex gap-1">
+            {['logs', 'summary'].map(tab => (
+              <button key={tab} onClick={() => setActiveTab(tab)}
+                className={`px-3 h-6 text-2xs font-medium rounded transition-colors ${activeTab === tab ? 'bg-accent text-white' : 'text-navy-300 hover:text-navy-100'}`}>
+                {tab === 'logs' ? 'Logs' : 'Daily Summary'}
+              </button>
             ))}
-          </select>
+          </div>
         </div>
-        <div className="text-sm text-gray-500 self-center">
-          {logs.length} records
+        <span className="label-caps font-mono tabular">
+          {activeTab === 'logs' ? `${sortedLogs.length} records` : `${summaryRows.length} employees`}
+        </span>
+      </div>
+
+      {/* Daily Summary view */}
+      {activeTab === 'summary' && (
+        <>
+          <div className="flex items-end gap-3 px-6 py-3 border-b border-navy-500/50 bg-navy-800">
+            <div className="flex flex-col gap-1">
+              <label className="label-caps">Date</label>
+              <input type="date" className={fieldCls} value={summaryDate}
+                onChange={e => setSummaryDate(e.target.value)} />
+            </div>
+            <div className="ml-auto flex gap-4 text-2xs text-navy-300 self-end pb-1">
+              <span className="text-signal-success font-medium">{summaryRows.filter(r => r.status === 'present').length} Present</span>
+              <span className="text-signal-warning font-medium">{summaryRows.filter(r => r.status === 'late').length} Late</span>
+              <span className="text-accent font-medium">{onBreakRows.length} On Break</span>
+              <span className="text-signal-danger font-medium">{summaryRows.filter(r => r.status === 'absent').length} Absent</span>
+            </div>
+          </div>
+          <div className="flex-1 overflow-auto p-6 space-y-6">
+            {summaryLoading ? (
+              <div className="flex items-center justify-center h-48"><Spinner size="lg" /></div>
+            ) : (<>
+              {onBreakRows.length > 0 && (
+                <div>
+                  <h2 className="label-caps mb-2 text-accent">Currently on Break ({onBreakRows.length})</h2>
+                  <div className="table-shell">
+                    <table className="table-base">
+                      <thead className="sticky top-0 z-10">
+                        <tr className="table-head-row">
+                          <th className="table-th">Employee</th>
+                          <th className="table-th">Branch</th>
+                          <th className="table-th">Time In</th>
+                          <th className="table-th">Break Since</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {onBreakRows.map((row, i) => {
+                          const branchId = row.emp.branchId?._id || row.emp.branchId
+                          const branch = branches.find(b => b._id === branchId)?.name || '—'
+                          return (
+                            <tr key={row.emp._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                              <td className="px-4 py-2.5 font-medium text-navy-100">
+                                {row.emp.firstName} {row.emp.lastName}
+                                {row.emp.employeeCode && <span className="text-navy-500 ml-1 font-mono text-2xs">{row.emp.employeeCode}</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-navy-300">{branch}</td>
+                              <td className="px-4 py-2.5 font-mono text-navy-300 tabular">{row.timeIn || '—'}</td>
+                              <td className="px-4 py-2.5 font-mono text-accent tabular">{row.breakSince || '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              <div>
+              <h2 className="label-caps mb-2 text-navy-300">Attendance Status</h2>
+              <div className="table-shell">
+                <table className="table-base">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="table-head-row">
+                      <th className="table-th">Employee</th>
+                      <th className="table-th">Branch</th>
+                      <th className="table-th">Status</th>
+                      <th className="table-th">Time In</th>
+                      <th className="table-th">Late By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {summaryRows.length === 0 ? (
+                      <tr><td colSpan={5} className="table-empty">No active employees found.</td></tr>
+                    ) : summaryRows.map((row, i) => {
+                      const branchId = row.emp.branchId?._id || row.emp.branchId
+                      const branch = branches.find(b => b._id === branchId)?.name || '—'
+                      return (
+                        <tr key={row.emp._id} className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                          <td className="px-4 py-2.5 font-medium text-navy-100">
+                            {row.emp.firstName} {row.emp.lastName}
+                            {row.emp.employeeCode && <span className="text-navy-500 ml-1 font-mono text-2xs">{row.emp.employeeCode}</span>}
+                          </td>
+                          <td className="px-4 py-2.5 text-navy-300">{branch}</td>
+                          <td className="px-4 py-2.5">
+                            {row.status === 'present' && <Badge variant="active">Present</Badge>}
+                            {row.status === 'late'    && <Badge variant="warning">Late</Badge>}
+                            {row.status === 'absent'  && <Badge variant="danger">Absent</Badge>}
+                          </td>
+                          <td className="px-4 py-2.5 font-mono text-navy-300 tabular">{row.timeIn || '—'}</td>
+                          <td className="px-4 py-2.5 text-navy-300">{row.lateMinutes > 0 ? `${row.lateMinutes}m` : '—'}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              </div>
+            </>)}
+          </div>
+        </>
+      )}
+
+      {/* Logs view */}
+      {activeTab === 'logs' && <>
+      <div className="flex flex-wrap items-end gap-3 px-6 py-3
+                      border-b border-navy-500/50 bg-navy-800">
+        <div className="flex flex-col gap-1">
+          <label className="label-caps">From</label>
+          <input type="date" className={fieldCls}
+            value={filters.from}
+            onChange={e => setFilters(p => ({ ...p, from: e.target.value }))} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="label-caps">To</label>
+          <input type="date" className={fieldCls}
+            value={filters.to}
+            onChange={e => setFilters(p => ({ ...p, to: e.target.value }))} />
+        </div>
+        <div className="flex flex-col gap-1">
+          <label className="label-caps">Employee</label>
+          {(() => {
+            const selected = employees.find(e => e._id === filters.employeeId)
+            const q = empSearch.toLowerCase()
+            const filtered = q
+              ? employees.filter(e =>
+                  `${e.firstName} ${e.lastName}`.toLowerCase().includes(q) ||
+                  e.employeeCode?.toLowerCase().includes(q)
+                )
+              : employees
+            return (
+              <div className="relative">
+                {selected && !empPickerOpen ? (
+                  <div className={`${fieldCls} flex items-center justify-between gap-2 cursor-pointer w-44`}
+                    onClick={() => { setEmpPickerOpen(true); setEmpSearch('') }}>
+                    <span className="truncate">{selected.firstName} {selected.lastName}</span>
+                    <button type="button"
+                      onClick={ev => { ev.stopPropagation(); setFilters(p => ({ ...p, employeeId: '' })); setEmpPickerOpen(false) }}
+                      className="text-navy-400 hover:text-signal-danger leading-none shrink-0">×</button>
+                  </div>
+                ) : (
+                  <input
+                    className={`${fieldCls} w-44`}
+                    placeholder="All employees"
+                    value={empSearch}
+                    autoFocus={empPickerOpen}
+                    onChange={e => { setEmpSearch(e.target.value); setEmpPickerOpen(true) }}
+                    onFocus={() => setEmpPickerOpen(true)}
+                    onBlur={() => setTimeout(() => setEmpPickerOpen(false), 150)}
+                  />
+                )}
+                {empPickerOpen && (
+                  <div className="absolute z-20 top-full left-0 mt-0.5 w-56 bg-navy-700 border border-navy-500 rounded-md shadow-lg max-h-48 overflow-y-auto">
+                    <div className="px-3 py-2 text-xs text-navy-400 hover:bg-navy-600 cursor-pointer"
+                      onMouseDown={() => { setFilters(p => ({ ...p, employeeId: '' })); setEmpPickerOpen(false); setEmpSearch('') }}>
+                      All employees
+                    </div>
+                    {filtered.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-navy-500">No employees found</div>
+                    ) : filtered
+                        .sort((a, b) => `${a.lastName} ${a.firstName}`.localeCompare(`${b.lastName} ${b.firstName}`))
+                        .map(e => (
+                          <div key={e._id}
+                            className="px-3 py-2 text-xs text-navy-100 hover:bg-navy-600 cursor-pointer"
+                            onMouseDown={() => { setFilters(p => ({ ...p, employeeId: e._id })); setEmpPickerOpen(false); setEmpSearch('') }}>
+                            {e.firstName} {e.lastName}
+                            <span className="text-navy-500 ml-1 font-mono text-2xs">{e.employeeCode}</span>
+                          </div>
+                        ))
+                    }
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+        </div>
+        <div className="ml-auto">
+          <button
+            type="button"
+            onClick={handleExportExcel}
+            disabled={loading || exporting || sortedLogs.length === 0}
+            className="px-4 h-8 text-xs font-medium bg-[rgb(var(--c-signal-success))] text-white rounded-md hover:bg-[rgb(var(--c-signal-success)/0.86)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {exporting ? 'Exporting...' : 'Export Excel'}
+          </button>
         </div>
       </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading…</div>
-      ) : (
-        <>
-          <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {['Employee', 'Date', 'Time', 'Type', 'Source', 'Confidence', 'Exceptions'].map(h => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
-                    ))}
+      {/* Table */}
+      <div className="flex-1 overflow-auto p-6">
+        {loading ? (
+          <div className="flex items-center justify-center h-48">
+            <Spinner size="lg" />
+          </div>
+        ) : (
+          <>
+            <div className="table-shell">
+              <table className="table-base">
+                <thead className="sticky top-0 z-10">
+                  <tr className="table-head-row">
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('employee')}>Employee <SortIcon dir={col==='employee'?dir:null}/></th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('timestamp')}>Date <SortIcon dir={col==='timestamp'?dir:null}/></th>
+                    <th className="table-th">Time</th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('type')}>Type <SortIcon dir={col==='type'?dir:null}/></th>
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('source')}>Source <SortIcon dir={col==='source'?dir:null}/></th>
+                    <th className="table-th">Exceptions</th>
+                    {canCorrect && <th className="table-th w-10" />}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody>
                   {paginated.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-10 text-center text-gray-400">No logs found for selected range</td></tr>
-                  ) : paginated.map(log => {
-                    const emp = log.employeeId
-                    const name = typeof emp === 'object'
-                      ? `${emp.firstName} ${emp.lastName}`
-                      : emp || '—'
-                    const ts = new Date(log.timestamp)
+                    <tr>
+                      <td colSpan={6} className="table-empty">
+                        No logs found for the selected range.
+                      </td>
+                    </tr>
+                  ) : paginated.map((log, i) => {
                     const ex = log.exceptions || {}
                     return (
-                      <tr key={log._id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium">{name}</td>
-                        <td className="px-4 py-3 text-gray-600">{ts.toLocaleDateString('en-PH')}</td>
-                        <td className="px-4 py-3 text-gray-600">{ts.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}</td>
-                        <td className="px-4 py-3">
-                          <Badge text={log.type} color={TYPE_BADGE[log.type] || 'bg-gray-100 text-gray-600'} />
+                      <tr key={log._id}
+                          className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                      <td className="px-4 py-2.5 font-medium text-navy-100">
+                        {employeeName(log.employeeId)}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-navy-300 tabular">
+                        {fmtDate(log.timestamp)}
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-navy-300 tabular">
+                        {fmtTime(log.timestamp)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <Badge variant={TYPE_VARIANT[log.type] ?? 'neutral'}>{TYPE_LABEL[log.type] ?? log.type}</Badge>
+                      </td>
+                      <td className="px-4 py-2.5 text-navy-300">
+                        {SOURCE_LABEL[log.source] ?? log.source ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex gap-1 flex-wrap">
+                          {ex.isLate              && <Badge variant="warning">Late {ex.lateMinutes}m</Badge>}
+                          {ex.isEarlyOut          && <Badge variant="warning">Early {ex.undertimeMinutes}m</Badge>}
+                          {ex.isMissingOut        && <Badge variant="danger">Missing OUT</Badge>}
+                          {ex.isOvertimeCandidate && <Badge variant="info">OT {ex.overtimeMinutes}m</Badge>}
+                        </div>
+                      </td>
+                      {canCorrect && (
+                        <td className="px-4 py-2.5">
+                          <button
+                            onClick={() => setEditTarget(log)}
+                            className="text-2xs text-accent hover:text-accent-200 transition-colors"
+                            title="Request correction for this log"
+                          >Edit</button>
                         </td>
-                        <td className="px-4 py-3">
-                          <Badge text={log.source?.replace('_', ' ') || '—'} color={SOURCE_BADGE[log.source] || 'bg-gray-100 text-gray-600'} />
-                        </td>
-                        <td className="px-4 py-3 text-gray-500">
-                          {log.confidenceScore != null ? `${(log.confidenceScore * 100).toFixed(0)}%` : '—'}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1 flex-wrap">
-                            {ex.isLate         && <Badge text={`Late ${ex.lateMinutes}m`}      color="bg-yellow-100 text-yellow-700" />}
-                            {ex.isEarlyOut     && <Badge text={`Early ${ex.undertimeMinutes}m`} color="bg-orange-100 text-orange-700" />}
-                            {ex.isMissingOut   && <Badge text="Missing OUT"                     color="bg-red-100 text-red-700" />}
-                            {ex.isOvertimeCandidate && <Badge text={`OT ${ex.overtimeMinutes}m`} color="bg-blue-100 text-blue-700" />}
-                          </div>
-                        </td>
+                      )}
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex gap-2 justify-center mt-4">
-              <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-                className="px-3 py-1 border rounded text-sm disabled:opacity-40">← Prev</button>
-              <span className="px-3 py-1 text-sm text-gray-600">{page} / {totalPages}</span>
-              <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
-                className="px-3 py-1 border rounded text-sm disabled:opacity-40">Next →</button>
-            </div>
-          )}
-        </>
+            {totalPages > 1 && (
+              <div className="flex items-center justify-center gap-3 py-4 border-t border-navy-500/30">
+                <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
+                  className="px-3 h-7 text-xs border border-navy-500 text-navy-200
+                             hover:bg-navy-700 disabled:opacity-30 transition-colors rounded-md">
+                  ← Prev
+                </button>
+                <span className="text-2xs text-navy-400 font-mono tabular">
+                  {page} / {totalPages}
+                </span>
+                <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)}
+                  className="px-3 h-7 text-xs border border-navy-500 text-navy-200
+                             hover:bg-navy-700 disabled:opacity-30 transition-colors rounded-md">
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+      </>}
+
+      {editTarget && (
+        <NewCorrectionModal
+          employees={employees}
+          canSelectEmployee={true}
+          selfServiceOnly={false}
+          initialValues={{
+            employeeId:          editTarget.employeeId?._id || editTarget.employeeId,
+            targetDate:          new Date(editTarget.timestamp).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }),
+            adjustmentOperation: 'update',
+            adjustmentLogId:     editTarget._id,
+            adjustmentType:      editTarget.type,
+            adjustmentTime:      toTimeHHmm(editTarget.timestamp),
+          }}
+          onClose={() => setEditTarget(null)}
+          onDone={() => { setEditTarget(null); loadData() }}
+          onSubmit={createCorrection}
+        />
       )}
     </div>
   )
 }
+

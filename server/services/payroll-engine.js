@@ -7,7 +7,7 @@
  * PH rates used: 2024 schedule.
  */
 
-const SalaryStructure = require('../models/SalaryStructure');
+const { getPool } = require('../config/postgres');
 
 // ── Statutory contribution helpers ────────────────────────────────
 
@@ -57,6 +57,22 @@ function round2(n) {
   return Math.round(n * 100) / 100;
 }
 
+function resolveDayOvertimeMultiplier(day, multipliers) {
+  let multiplier = multipliers.regular || 1.25;
+
+  if (day?.isRestDay) {
+    multiplier = Math.max(multiplier, multipliers.restDay || 1.30);
+  }
+  if (day?.isHoliday && day?.holidayType === 'special_non_working') {
+    multiplier = Math.max(multiplier, multipliers.specialHoliday || 1.30);
+  }
+  if (day?.isHoliday && day?.holidayType === 'regular') {
+    multiplier = Math.max(multiplier, multipliers.regularHoliday || 2.00);
+  }
+
+  return multiplier;
+}
+
 // ── Main computePayslip ───────────────────────────────────────────
 
 /**
@@ -71,11 +87,36 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     employeeId, employeeCode, employeeName,
     totalWorkedMinutes, totalLateMinutes, totalUndertimeMinutes,
     totalOvertimeMinutes, totalNightDiffMinutes,
-    absentDays, regularHolidayDays, specialHolidayDays, days
+    absentDays, days
   } = timeSummary;
 
   // Fetch active salary structure
-  const salaryStruct = await SalaryStructure.findOne({ employeeId, isActive: true }).lean();
+  let salaryStruct = null;
+  const pool = getPool();
+  const { rows } = await pool.query(
+    `
+      SELECT *
+      FROM salary_structures
+      WHERE employee_id = $1
+        AND is_active = TRUE
+      ORDER BY effective_date DESC, created_at DESC
+      LIMIT 1
+    `,
+    [employeeId],
+  );
+
+  if (rows[0]) {
+    const row = rows[0];
+    salaryStruct = {
+      basicRate: row.basic_rate == null ? 0 : Number(row.basic_rate),
+      salaryType: row.salary_type,
+      paymentFrequency: row.payment_frequency,
+      allowances: row.allowances || [],
+      additionalDeductions: row.additional_deductions || [],
+      overtimeEligible: row.overtime_eligible,
+      nightDiffEligible: row.night_diff_eligible,
+    };
+  }
 
   if (!salaryStruct) {
     return {
@@ -94,9 +135,14 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     basicRate,
     salaryType,
     paymentFrequency,
-    allowances: allowanceList   = [],
-    additionalDeductions         = []
+    allowances: allowanceList,
+    additionalDeductions,
+    overtimeEligible             = true,
+    nightDiffEligible            = true,
   } = salaryStruct;
+
+  const safeAllowanceList      = Array.isArray(allowanceList)      ? allowanceList      : [];
+  const safeAdditionalDeductions = Array.isArray(additionalDeductions) ? additionalDeductions : [];
 
   // How many pay periods per month
   const FREQ = paymentFrequency === 'monthly'     ? 1
@@ -119,24 +165,55 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     workDayRate = basicRate * 8;
   }
 
-  const daysPresent = days.filter(d => !d.isAbsent && !d.isRestDay).length;
+  const payableDays = days.filter((day) => {
+    if (day.isMissingOut) return false;
+    if (day.isHoliday && day.isRestDay) return (day.workedMinutes || 0) > 0;
+    return !day.isAbsent && !day.isRestDay;
+  });
+  const daysPresent = round2(payableDays.reduce((sum, day) => sum + (day.payFraction ?? 1), 0));
 
   // Basic pay (days present × day rate)
   const basicPay = round2(workDayRate * daysPresent);
 
   // Late & undertime deductions
-  const lateDeduction      = round2((totalLateMinutes      / 60) * hourlyRate);
-  const undertimeDeduction = round2((totalUndertimeMinutes / 60) * hourlyRate);
+  const rawLateDeduction      = round2((totalLateMinutes      / 60) * hourlyRate);
+  const rawUndertimeDeduction = round2((totalUndertimeMinutes / 60) * hourlyRate);
+
+  // Cap: combined attendance deductions cannot exceed basic pay for the period.
+  // This prevents a scenario where an employee arrives very late AND leaves very early
+  // such that the sum of both penalties exceeds what they earned for being present.
+  // In that case, the employee is effectively absent — basic pay is zeroed out by the cap.
+  const rawAttendanceCombined = round2(rawLateDeduction + rawUndertimeDeduction);
+  let lateDeduction, undertimeDeduction;
+  if (rawAttendanceCombined > basicPay && rawAttendanceCombined > 0) {
+    const scale      = basicPay / rawAttendanceCombined;
+    lateDeduction      = round2(rawLateDeduction      * scale);
+    undertimeDeduction = round2(rawUndertimeDeduction * scale);
+  } else {
+    lateDeduction      = rawLateDeduction;
+    undertimeDeduction = rawUndertimeDeduction;
+  }
 
   // OT multipliers from tenant config (fallback to DOLE minimums)
   const otM = tenantSettings.overtimeMultipliers || {};
-  const regularOtMult   = otM.regular        || 1.25;
   const specialHolMult  = otM.specialHoliday || 1.30;
   const regularHolMult  = otM.regularHoliday || 2.00;
   const nightDiffRate   = otM.nightDiff       || 0.10;
+  const regularHolidayDays = days.filter((day) => day.isHoliday && day.holidayType === 'regular' && !day.isAbsent && !day.isMissingOut).length;
+  const specialHolidayDays = days.filter((day) => day.isHoliday && day.holidayType === 'special_non_working' && !day.isAbsent && !day.isMissingOut).length;
 
   // Overtime pay (regular hours)
-  const overtimePay = round2((totalOvertimeMinutes / 60) * hourlyRate * regularOtMult);
+  const overtimePay = overtimeEligible
+    ? round2(days.reduce((sum, day) => {
+      if (day.isMissingOut) return sum;
+      const payableMinutes = day.isRestDay && !day.isHoliday
+        ? (day.workedMinutes || 0)
+        : (day.overtimeMinutes || 0);
+      if (!payableMinutes) return sum;
+      const multiplier = resolveDayOvertimeMultiplier(day, otM);
+      return sum + ((payableMinutes / 60) * hourlyRate * multiplier);
+    }, 0))
+    : 0;
 
   // Holiday pay premium (extra on top of basic already counted)
   const holidayPay = round2(
@@ -145,11 +222,13 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   );
 
   // Night differential pay
-  const nightDiffPay = round2((totalNightDiffMinutes / 60) * hourlyRate * nightDiffRate);
+  const nightDiffPay = nightDiffEligible
+    ? round2((totalNightDiffMinutes / 60) * hourlyRate * nightDiffRate)
+    : 0;
 
   // Allowances prorated for pay period
   let allowancesTotal = 0;
-  for (const a of allowanceList) {
+  for (const a of safeAllowanceList) {
     if      (a.type === 'fixed_monthly') allowancesTotal += a.amount / FREQ;
     else if (a.type === 'per_day')       allowancesTotal += a.amount * daysPresent;
     else if (a.type === 'per_hour')      allowancesTotal += a.amount * (totalWorkedMinutes / 60);
@@ -157,10 +236,11 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   allowancesTotal = round2(allowancesTotal);
 
   const grossPay = round2(
-    basicPay + overtimePay + holidayPay + nightDiffPay
-    - lateDeduction - undertimeDeduction
-    + allowancesTotal
+    basicPay + overtimePay + holidayPay + nightDiffPay + allowancesTotal
   );
+  // attendanceDeductions already capped to basicPay via the scaling above
+  const attendanceDeductions = round2(lateDeduction + undertimeDeduction);
+  const taxablePeriodGross = round2(Math.max(0, grossPay - attendanceDeductions));
 
   // ── Statutory contributions (based on monthly basic equivalent) ──
   const monthlyBasic = salaryType === 'monthly' ? basicRate : workDayRate * WD_PER_MONTH;
@@ -169,7 +249,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   const pagibig    = round2(computePagIbig(monthlyBasic)    / FREQ);
 
   // Withholding tax on monthly taxable income → divide by FREQ
-  const monthlyGross   = grossPay * FREQ;
+  const monthlyGross   = taxablePeriodGross * FREQ;
   const monthlyTaxable = Math.max(0,
     monthlyGross
     - computeSSS(monthlyBasic)
@@ -180,13 +260,13 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
 
   // Additional company deductions
   let otherDeductions = 0;
-  for (const d of additionalDeductions) {
+  for (const d of safeAdditionalDeductions) {
     otherDeductions += d.amount || 0;
   }
   otherDeductions = round2(otherDeductions);
 
-  const totalDeductions = round2(sss + philHealth + pagibig + withholdingTax + otherDeductions);
-  const netPay          = round2(grossPay - totalDeductions);
+  const totalDeductions = round2(attendanceDeductions + sss + philHealth + pagibig + withholdingTax + otherDeductions);
+  const netPay          = round2(Math.max(0, grossPay - totalDeductions));
 
   return {
     employeeId,

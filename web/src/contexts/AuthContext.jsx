@@ -5,12 +5,13 @@
 
 import { createContext, useContext, useState, useEffect } from 'react'
 import { login as apiLogin, logout as apiLogout, getToken } from '../config/api'
+import { clearSensitiveAuth, startSensitiveAuthActivityTracking } from '../lib/sensitiveAuth'
 
-const AuthContext = createContext({})
+const AuthContext = createContext(null)
 
 export const useAuth = () => {
   const context = useContext(AuthContext)
-  if (!context) {
+  if (!context || typeof context.signIn !== 'function' || typeof context.signOut !== 'function') {
     throw new Error('useAuth must be used within AuthProvider')
   }
   return context
@@ -44,6 +45,12 @@ export const AuthProvider = ({ children }) => {
     setLoading(false)
   }, [])
 
+  useEffect(() => {
+    if (!user) return undefined
+    const stopTracking = startSensitiveAuthActivityTracking()
+    return () => stopTracking?.()
+  }, [user?.sub])
+
   const signIn = async (email, password) => {
     const data = await apiLogin(email, password)
     const payload = parseJwt(data.token)
@@ -55,8 +62,13 @@ export const AuthProvider = ({ children }) => {
 
   const signOut = () => {
     apiLogout()
+    clearSensitiveAuth()
     setUser(null)
     setIsAdmin(false)
+  }
+
+  const updateUserProfile = (nextUser) => {
+    setUser((prev) => ({ ...(prev || {}), ...(nextUser || {}) }))
   }
 
   const value = {
@@ -64,7 +76,10 @@ export const AuthProvider = ({ children }) => {
     isAdmin,
     loading,
     signIn,
-    signOut
+    signOut,
+    updateUserProfile,
+    login: signIn,
+    logout: signOut,
   }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

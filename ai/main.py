@@ -1,5 +1,5 @@
 """
-Apollo AI Engine - Main Entry Point
+DE WEBNET AI Engine - Main Entry Point
 Facial recognition engine for attendance tracking
 """
 
@@ -30,7 +30,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-class ApolloAIEngine:
+class DEWEBNETAIEngine:
     """Main AI Engine class"""
 
     def __init__(self):
@@ -44,7 +44,7 @@ class ApolloAIEngine:
     def initialize(self):
         """Initialize all services"""
         try:
-            logger.info("🚀 Starting Apollo AI Engine...")
+            logger.info("🚀 Starting DE WEBNET AI Engine...")
             logger.info(f"Configuration: {Config.FRAME_WIDTH}x{Config.FRAME_HEIGHT} @ {Config.FPS} FPS")
             logger.info(f"Confidence threshold: {Config.CONFIDENCE_THRESHOLD}")
 
@@ -71,7 +71,7 @@ class ApolloAIEngine:
             self.request_employee_data()
 
             self.is_running = True
-            logger.info("✅ Apollo AI Engine started successfully")
+            logger.info("✅ DE WEBNET AI Engine started successfully")
 
         except Exception as e:
             logger.error(f"Failed to initialize AI engine: {str(e)}")
@@ -182,7 +182,7 @@ class ApolloAIEngine:
 
     def shutdown(self):
         """Graceful shutdown"""
-        logger.info("Shutting down Apollo AI Engine...")
+        logger.info("Shutting down DE WEBNET AI Engine...")
         self.is_running = False
 
         if self.camera:
@@ -191,7 +191,7 @@ class ApolloAIEngine:
         if self.ws:
             self.ws.close()
 
-        logger.info("Apollo AI Engine shut down successfully")
+        logger.info("DE WEBNET AI Engine shut down successfully")
 
 
 # Global engine instance
@@ -216,7 +216,7 @@ def main():
 
     try:
         # Create and initialize engine
-        engine = ApolloAIEngine()
+        engine = DEWEBNETAIEngine()
         engine.initialize()
 
         # Run main loop

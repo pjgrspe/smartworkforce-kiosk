@@ -1,7 +1,7 @@
 {
-  "name": "apollo-facial-recognition",
-  "version": "1.0.0",
-  "description": "Enterprise-Grade Facial Recognition Attendance System",
+  "name": "smartworkforce",
+  "version": "2.0.0",
+  "description": "SmartWorkforce — Facial Recognition Attendance Management System",
   "private": true,
   "workspaces": [
     "server",
@@ -9,6 +9,7 @@
   ],
   "scripts": {
     "install:all": "npm install && cd server && npm install && cd ../web && npm install && cd ../ai && pip install -r requirements.txt",
+    "dev": "concurrently --names \"server,web\" --prefix-colors \"cyan,magenta\" \"npm run dev:server\" \"npm run dev:web\"",
     "dev:server": "cd server && npm run dev",
     "dev:web": "cd web && npm run dev",
     "dev:ai": "cd ai && python main.py",
@@ -18,9 +19,14 @@
     "restart": "pm2 restart all",
     "logs": "pm2 logs",
     "monit": "pm2 monit",
-    "setup": "node scripts/setup.js"
+    "setup": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1",
+    "setup:windows": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1",
+    "setup:windows:skip-install": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -SkipInstall",
+    "setup:windows:mock": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -IncludeMockData",
+    "setup:windows:start": "powershell -ExecutionPolicy Bypass -NoProfile -File scripts/setup-windows.ps1 -StartServices"
   },
   "devDependencies": {
+    "concurrently": "^8.2.2",
     "pm2": "^5.3.0"
   },
   "engines": {
@@ -34,7 +40,6 @@
     "opencv",
     "react",
     "nodejs",
-    "supabase",
     "websocket",
     "offline-first"
   ],

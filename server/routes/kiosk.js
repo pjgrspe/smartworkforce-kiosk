@@ -3,20 +3,28 @@
  * No JWT required. Authenticated by tenant code (query param or body).
  */
 
-const express       = require('express');
-const router        = express.Router();
-const Tenant        = require('../models/Tenant');
-const Employee      = require('../models/Employee');
-const AttendanceLog = require('../models/AttendanceLog');
-const logger        = require('../utils/logger');
+const express        = require('express');
+const router         = express.Router();
+const { checkDatabaseConnection } = require('../config/database');
+const { getTenantRepository } = require('../repositories/tenant');
+const { getKioskRepository } = require('../repositories/kiosk');
+const logger         = require('../utils/logger');
+const offlineBuf     = require('../services/offline-buffer');
+
+function normalizeTenantCode(raw) {
+  const normalized = (raw || '').toString().toUpperCase().trim();
+  if (normalized === 'APOLLO') return 'DEWEBNET';
+  return normalized;
+}
 
 // Middleware: resolve tenant by code
 const resolveTenant = async (req, res, next) => {
-  const code = (req.query.tenant || req.body?.tenant || '').toString().toUpperCase().trim();
+  const code = normalizeTenantCode(req.query.tenant || req.body?.tenant || '');
   if (!code) return res.status(400).json({ error: 'tenant code is required' });
 
   try {
-    const tenant = await Tenant.findOne({ code, isActive: true }).lean();
+    const tenantRepo = getTenantRepository();
+    const tenant = await tenantRepo.findActiveByCode(code);
     if (!tenant) return res.status(404).json({ error: 'Invalid company code' });
     req.tenantId = tenant._id;
     req.tenant   = tenant;
@@ -26,18 +34,39 @@ const resolveTenant = async (req, res, next) => {
   }
 };
 
+// GET /api/kiosk/validate-tenant?tenant=ACME
+// Lightweight check — returns 200 if the tenant code is valid and active, 404 otherwise.
+router.get('/validate-tenant', resolveTenant, (req, res) => {
+  return res.json({ valid: true, name: req.tenant.name });
+});
+
 // GET /api/kiosk/employees?tenant=ACME
 // Returns active employees with face-api.js descriptors (no sensitive data).
+// Falls back to SQLite cache when MongoDB is unreachable.
 router.get('/employees', resolveTenant, async (req, res) => {
+  if (!(await checkDatabaseConnection())) {
+    const cached = offlineBuf.getCachedEmployees(req.tenantId);
+    if (cached.length) {
+      logger.warn('GET /kiosk/employees: DB offline - serving employee cache (%d employees)', cached.length);
+      return res.json({ data: cached, offline: true });
+    }
+    return res.status(503).json({ error: 'Database offline and no local cache available' });
+  }
+
   try {
-    const employees = await Employee.find(
-      { tenantId: req.tenantId, isActive: true, 'employment.status': 'active' },
-      'firstName lastName employeeCode branchId faceData.faceApiDescriptors faceData.enrollmentDate'
-    ).lean();
+    const kioskRepo = getKioskRepository();
+    const employees = await kioskRepo.getEmployeesForKiosk(req.tenantId);
+
+    offlineBuf.cacheEmployees(req.tenantId, employees);
 
     return res.json({ data: employees });
   } catch (err) {
     logger.error('GET /kiosk/employees:', err.message);
+    const cached = offlineBuf.getCachedEmployees(req.tenantId);
+    if (cached.length) {
+      logger.warn('GET /kiosk/employees: DB error - serving employee cache (%d employees)', cached.length);
+      return res.json({ data: cached, offline: true });
+    }
     return res.status(500).json({ error: err.message });
   }
 });
@@ -46,16 +75,8 @@ router.get('/employees', resolveTenant, async (req, res) => {
 // Returns the last 15 punches today (for the recent activity feed).
 router.get('/recent', resolveTenant, async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const logs = await AttendanceLog.find(
-      { tenantId: req.tenantId, timestamp: { $gte: today } }
-    )
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .sort({ timestamp: -1 })
-      .limit(15)
-      .lean();
+    const kioskRepo = getKioskRepository();
+    const logs = await kioskRepo.getRecentAttendance(req.tenantId, 15);
 
     return res.json({ data: logs });
   } catch (err) {
@@ -66,43 +87,64 @@ router.get('/recent', resolveTenant, async (req, res) => {
 
 // POST /api/kiosk/punch?tenant=ACME
 // Body: { tenant, employeeId, type, confidenceScore }
+// Queues to SQLite offline buffer when the database is unreachable.
 router.post('/punch', resolveTenant, async (req, res) => {
+  const { employeeId, type, confidenceScore, timestamp: bodyTimestamp } = req.body;
+
+  if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+  if (!['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'].includes(type)) {
+    return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
+  }
+
+  // Use the original punch timestamp if provided (offline sync from kiosk-service),
+  // otherwise fall back to now (direct punch from browser kiosk).
+  const parsedBody = bodyTimestamp ? new Date(bodyTimestamp) : null;
+  const now = (parsedBody && !isNaN(parsedBody.getTime())) ? parsedBody : new Date();
+
+  // ── Offline path ────────────────────────────────────────────────────────────
+  if (!(await checkDatabaseConnection())) {
+    offlineBuf.queuePunch({
+      tenantId: req.tenantId, branchId: null,
+      employeeId, type, timestamp: now, confidenceScore,
+    });
+    logger.warn('Kiosk punch queued offline: %s %s', type, employeeId);
+    return res.status(201).json({
+      data: { employeeId, type, timestamp: now, source: 'face_kiosk', synced: false },
+      offline: true,
+      queued:  offlineBuf.pendingCount(),
+    });
+  }
+
   try {
-    const { employeeId, type, confidenceScore } = req.body;
-
-    if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
-    if (!['IN', 'OUT', 'BREAK_IN', 'BREAK_OUT'].includes(type)) {
-      return res.status(400).json({ error: 'type must be IN | OUT | BREAK_IN | BREAK_OUT' });
-    }
-
-    // Verify employee belongs to this tenant
-    const emp = await Employee.findOne(
-      { _id: employeeId, tenantId: req.tenantId, isActive: true },
-      'firstName lastName employeeCode branchId'
-    ).lean();
-    if (!emp) return res.status(404).json({ error: 'Employee not found' });
-
-    const log = await new AttendanceLog({
-      tenantId:        req.tenantId,
-      branchId:        emp.branchId,
+    const kioskRepo = getKioskRepository();
+    const created = await kioskRepo.createPunch({
+      tenantId: req.tenantId,
       employeeId,
       type,
-      timestamp:       new Date(),
-      source:          'face_kiosk',
-      confidenceScore: confidenceScore != null ? Number(confidenceScore) : undefined,
-      synced:          true,
-      syncedAt:        new Date(),
-    }).save();
+      confidenceScore,
+      timestamp: now,
+    });
+    if (!created) return res.status(404).json({ error: 'Employee not found' });
 
-    const populated = await AttendanceLog.findById(log._id)
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .lean();
-
-    logger.info(`Kiosk punch: ${type} - ${emp.firstName} ${emp.lastName}`);
-    return res.status(201).json({ data: populated });
+    const employeeName = created.employeeId
+      ? `${created.employeeId.firstName} ${created.employeeId.lastName}`.trim()
+      : employeeId;
+    logger.info(`Kiosk punch: ${type} - ${employeeName}`);
+    return res.status(201).json({ data: created });
   } catch (err) {
-    logger.error('POST /kiosk/punch:', err.message);
-    return res.status(400).json({ error: err.message });
+    if (err.code === 'PUNCH_SEQUENCE_ERROR') {
+      return res.status(409).json({ error: err.message });
+    }
+    logger.error('POST /kiosk/punch DB error - buffering offline:', err.message);
+    offlineBuf.queuePunch({
+      tenantId: req.tenantId, branchId: null,
+      employeeId, type, timestamp: now, confidenceScore,
+    });
+    return res.status(201).json({
+      data: { employeeId, type, timestamp: now, source: 'face_kiosk', synced: false },
+      offline: true,
+      queued:  offlineBuf.pendingCount(),
+    });
   }
 });
 

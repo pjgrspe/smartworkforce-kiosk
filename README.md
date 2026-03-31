@@ -1,4 +1,10 @@
-# Apollo Facial Recognition Attendance System
+# DE WEBNET Facial Recognition Attendance System
+
+## Migration Playbook
+
+For the PostgreSQL + branch offline-first migration, follow:
+
+- `POSTGRES_OFFLINE_MIGRATION_PLAYBOOK.md`
 
 An enterprise-grade facial recognition attendance system with offline-first capabilities, built for Windows deployment.
 
@@ -56,7 +62,7 @@ An enterprise-grade facial recognition attendance system with offline-first capa
 
 1. Clone the repository:
    ```bash
-   cd /home/pgorospe-dsdc/Projects/Apollo
+   cd /home/pgorospe-dsdc/Projects/DE WEBNET
    ```
 
 2. Install dependencies:
@@ -135,7 +141,7 @@ Access the application:
    ```
 
 5. Set up Chrome kiosk mode:
-   - Create `C:\Apollo\start-kiosk.bat`:
+   - Create `C:\DE WEBNET\start-kiosk.bat`:
      ```batch
      @echo off
      start /max chrome.exe --kiosk --app=http://localhost:5173/kiosk --disable-pinch
@@ -149,7 +155,7 @@ Access the application:
 ## Project Structure
 
 ```
-Apollo/
+DE WEBNET/
 ├── ai/                    # Python AI Engine
 ├── server/                # Node.js Middleware
 ├── web/                   # React Web App
@@ -235,7 +241,7 @@ Apollo/
 
 1. Verify Supabase credentials in `.env`
 2. Check internet connectivity
-3. Review logs: `pm2 logs apollo-server`
+3. Review logs: `pm2 logs de-webnet-server`
 4. Force sync from Admin Panel
 
 ## Monitoring
@@ -251,7 +257,7 @@ pm2 logs
 pm2 monit
 
 # Restart service
-pm2 restart apollo-server
+pm2 restart de-webnet-server
 ```
 
 ## Security Notes

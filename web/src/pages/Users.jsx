@@ -1,9 +1,15 @@
 /**
  * Users Page — admin-only user management.
  */
-import { useState, useEffect, useCallback } from 'react'
-import { getUsers, createUser, updateUser, deleteUser } from '../config/api'
-import { getBranches } from '../config/api'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import { getUsers, createUser, updateUser, deleteUser, getBranches, getEmployees, getTenants, verifyPassword } from '../config/api'
+import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
+import Badge from '../components/ui/Badge'
+import Modal from '../components/ui/Modal'
+import { Input, Select } from '../components/ui/Input'
+import Button from '../components/ui/Button'
+import Spinner from '../components/ui/Spinner'
 
 const ROLES = [
   { value: 'super_admin',    label: 'Super Admin' },
@@ -14,116 +20,204 @@ const ROLES = [
   { value: 'auditor',       label: 'Auditor' },
 ]
 
-const ROLE_COLOR = {
-  super_admin:    'bg-purple-100 text-purple-700',
-  client_admin:   'bg-indigo-100 text-indigo-700',
-  hr_payroll:     'bg-blue-100 text-blue-700',
-  branch_manager: 'bg-cyan-100 text-cyan-700',
-  employee:       'bg-gray-100 text-gray-700',
-  auditor:        'bg-yellow-100 text-yellow-700',
+const ROLE_VARIANT = {
+  super_admin:    'danger',
+  client_admin:   'blue',
+  hr_payroll:     'info',
+  branch_manager: 'warning',
+  employee:       'neutral',
+  auditor:        'success',
 }
 
-const EMPTY = { email: '', firstName: '', lastName: '', role: 'employee', branchId: '', password: '', isActive: true }
+const EMPTY = { email: '', firstName: '', lastName: '', role: 'employee', branchId: '', employeeId: '', tenantId: '', password: '', isActive: true }
 
-function UserModal({ initial, branches, onClose, onSave }) {
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
+}
+
+// ── User Modal ────────────────────────────────────────────────────────
+function UserModal({ initial, branches, employees, tenants, currentUser, onClose, onSave }) {
   const editing = !!initial?._id
-  const [form, setForm]   = useState(initial ? { ...EMPTY, ...initial, password: '' } : { ...EMPTY })
+  const initialForm = initial
+    ? {
+        ...EMPTY,
+        ...initial,
+        branchId: typeof initial.branchId === 'object' ? initial.branchId?._id || '' : initial.branchId || '',
+        employeeId: typeof initial.employeeId === 'object' ? initial.employeeId?._id || '' : initial.employeeId || '',
+        tenantId: initial.tenantId || '',
+        password: '',
+      }
+    : { ...EMPTY }
+  const [form, setForm]   = useState(initialForm)
+  const [oldPassword, setOldPassword] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError]   = useState('')
+  const [tenantBranches, setTenantBranches] = useState(branches)
+  const editingSelf = editing && initial?._id === currentUser?._id
+
+  const branchLocked = !['super_admin', 'client_admin'].includes(currentUser?.role) && !!currentUser?.branchId
+  const roleOptions = currentUser?.role === 'super_admin'
+    ? ROLES
+    : ROLES.filter((role) => ['hr_payroll', 'branch_manager', 'employee', 'auditor'].includes(role.value))
+  const requiresEmployeeLink = form.role === 'employee'
+  const effectiveBranchId = branchLocked ? currentUser?.branchId : form.branchId
+  const visibleBranches = currentUser?.role === 'super_admin' ? tenantBranches : branches
+  const visibleEmployees = employees.filter((employee) => {
+    if (!effectiveBranchId) return true
+    return String(employee.branchId) === String(effectiveBranchId)
+  })
+
+  // When super_admin selects a tenant, fetch branches scoped to that tenant
+  useEffect(() => {
+    if (currentUser?.role !== 'super_admin') return
+    if (!form.tenantId) { setTenantBranches([]); return }
+    getBranches(form.tenantId).then(r => setTenantBranches(r?.data || [])).catch(() => setTenantBranches([]))
+  }, [form.tenantId, currentUser?.role])
+
+  useEffect(() => {
+    if (branchLocked) {
+      setForm((prev) => ({ ...prev, branchId: currentUser.branchId }))
+    }
+  }, [branchLocked, currentUser?.branchId])
+
+  useEffect(() => {
+    if (!requiresEmployeeLink && form.employeeId) {
+      setForm((prev) => ({ ...prev, employeeId: '' }))
+      return
+    }
+
+    if (requiresEmployeeLink && form.employeeId && !visibleEmployees.some((employee) => employee._id === form.employeeId)) {
+      setForm((prev) => ({ ...prev, employeeId: '' }))
+    }
+  }, [requiresEmployeeLink, form.employeeId, visibleEmployees])
 
   const set = (key, val) => setForm(p => ({ ...p, [key]: val }))
 
   const submit = async () => {
     if (!form.email || !form.role) { setError('Email and role are required'); return }
     if (!editing && !form.password) { setError('Password is required for new users'); return }
+    if (editingSelf && form.password && !oldPassword) { setError('Current password is required to set a new password'); return }
+    if (requiresEmployeeLink && !form.employeeId) { setError('Employee accounts must be linked to an employee profile'); return }
     setSaving(true); setError('')
     const payload = { ...form }
-    if (!payload.password) delete payload.password  // don't send empty password on edit
+    if (!payload.password) delete payload.password
+    if (editingSelf && payload.password) payload.oldPassword = oldPassword
+    if (!requiresEmployeeLink) delete payload.employeeId
     try { onSave(await (editing ? updateUser(initial._id, payload) : createUser(payload))) }
     catch (err) { setError(err.message); setSaving(false) }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
-          <h3 className="text-lg font-semibold">{editing ? 'Edit User' : 'Create User'}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
+    <Modal
+      title={editing ? 'Edit User' : 'Create User'}
+      width="max-w-lg"
+      onClose={onClose}
+      onConfirm={submit}
+      loading={saving}
+    >
+      <div className="space-y-3">
+        {error && (
+          <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8
+                        border border-signal-danger/25 rounded-md">{error}</p>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Input label="First Name" value={form.firstName}
+            onChange={e => set('firstName', e.target.value)} />
+          <Input label="Last Name" value={form.lastName}
+            onChange={e => set('lastName', e.target.value)} />
         </div>
-        <div className="p-5 space-y-4">
-          {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{error}</div>}
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">First Name</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.firstName} onChange={e => set('firstName', e.target.value)} />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Last Name</label>
-              <input className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.lastName} onChange={e => set('lastName', e.target.value)} />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Email *</label>
-            <input type="email" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.email} onChange={e => set('email', e.target.value)} />
-          </div>
-
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">
-              Password {editing && <span className="text-gray-400 font-normal">(leave blank to keep current)</span>}
-            </label>
-            <input type="password" className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-              value={form.password} onChange={e => set('password', e.target.value)}
-              placeholder={editing ? '••••••••' : 'Required'} />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Role *</label>
-              <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.role} onChange={e => set('role', e.target.value)}>
-                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Branch</label>
-              <select className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
-                value={form.branchId} onChange={e => set('branchId', e.target.value)}>
-                <option value="">— None —</option>
-                {branches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <input type="checkbox" id="isActive" checked={form.isActive}
-              onChange={e => set('isActive', e.target.checked)} className="w-4 h-4 rounded" />
-            <label htmlFor="isActive" className="text-sm text-gray-700">Active</label>
-          </div>
+        <Input label="Email *" type="email" value={form.email}
+          onChange={e => set('email', e.target.value)} />
+        <Input
+          label={editing ? 'Password (blank = keep current)' : 'Password *'}
+          type="password"
+          value={form.password}
+          placeholder={editing ? '••••••••' : 'Required'}
+          onChange={e => set('password', e.target.value)}
+        />
+        {editingSelf && form.password && (
+          <Input
+            label="Current Password *"
+            type="password"
+            value={oldPassword}
+            placeholder="Enter your current password"
+            onChange={e => setOldPassword(e.target.value)}
+          />
+        )}
+        {currentUser?.role === 'super_admin' && (
+          <Select label="Company (Tenant)" value={form.tenantId}
+            onChange={e => setForm(p => ({ ...p, tenantId: e.target.value, branchId: '' }))}>
+            <option value="">— None —</option>
+            {tenants.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </Select>
+        )}
+        <div className="grid grid-cols-2 gap-3">
+          <Select label="Role *" value={form.role}
+            onChange={e => set('role', e.target.value)}>
+            {roleOptions.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+          </Select>
+          <Select label={branchLocked ? 'Branch (Locked)' : 'Branch'} value={form.branchId}
+            onChange={e => set('branchId', e.target.value)} disabled={branchLocked}>
+            <option value="">— None —</option>
+            {visibleBranches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
+          </Select>
         </div>
-        <div className="flex justify-end gap-3 px-5 pb-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={submit} disabled={saving}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Saving…' : (editing ? 'Update' : 'Create')}
-          </button>
-        </div>
+        {requiresEmployeeLink && (
+          <Select label="Linked Employee *" value={form.employeeId}
+            onChange={e => set('employeeId', e.target.value)}>
+            <option value="">— Select Employee —</option>
+            {visibleEmployees.map(employee => (
+              <option key={employee._id} value={employee._id}>
+                {[employee.firstName, employee.lastName].filter(Boolean).join(' ')} {employee.employeeCode ? `(${employee.employeeCode})` : ''}
+              </option>
+            ))}
+          </Select>
+        )}
+        {branchLocked && (
+          <p className="text-2xs text-navy-300">This account can only manage users for its assigned branch.</p>
+        )}
+        {requiresEmployeeLink && (
+          <p className="text-2xs text-navy-300">Employee accounts use this linked profile for self-service attendance, corrections, and payslips.</p>
+        )}
+        <label className="flex items-center gap-2 text-xs text-navy-200 cursor-pointer">
+          <input type="checkbox" className="accent-accent w-3.5 h-3.5"
+            checked={form.isActive} onChange={e => set('isActive', e.target.checked)} />
+          Active
+        </label>
       </div>
-    </div>
+    </Modal>
   )
 }
 
+// ── Page ──────────────────────────────────────────────────────────────
 export default function Users() {
+  const { user } = useAuth()
   const [users,    setUsers]    = useState([])
   const [branches, setBranches] = useState([])
+  const [employees, setEmployees] = useState([])
+  const [tenants,  setTenants]  = useState([])
   const [loading,  setLoading]  = useState(true)
   const [search,   setSearch]   = useState('')
-  const [modal,    setModal]    = useState(null)  // null | 'create' | user-object
+  const [modal,    setModal]    = useState(null)
   const [deleteId, setDeleteId] = useState(null)
+  const [reauthOpen, setReauthOpen] = useState(false)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [reauthError, setReauthError] = useState('')
+  const [reauthLoading, setReauthLoading] = useState(false)
+  const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
+  const [selectedUser, setSelectedUser] = useState(null)
+  const { col, dir, toggle } = useSortable('name')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -135,12 +229,19 @@ export default function Users() {
   useEffect(() => {
     load()
     getBranches().then(r => setBranches(r?.data || [])).catch(() => {})
+    getEmployees().then(r => setEmployees(r?.data || [])).catch(() => {})
+    if (user?.role === 'super_admin') {
+      getTenants().then(r => setTenants(r?.data || [])).catch(() => {})
+    }
   }, [load])
 
-  const handleSave = async (res) => {
-    setModal(null)
-    await load()
-  }
+  useEffect(() => {
+    if (!selectedUser?._id) return
+    const next = users.find((item) => item._id === selectedUser._id)
+    if (next) setSelectedUser(next)
+  }, [users, selectedUser?._id])
+
+  const handleSave = async () => { setModal(null); await load() }
 
   const handleDelete = async () => {
     if (!deleteId) return
@@ -148,72 +249,266 @@ export default function Users() {
     catch (err) { alert(err.message) }
   }
 
-  const branchName = (id) => branches.find(b => b._id === id)?.name || '—'
+  const requestSensitiveAction = (action) => {
+    if (hasFreshSensitiveAuth()) {
+      if (action.type === 'edit' && action.user) {
+        setModal(action.user)
+      }
+      if (action.type === 'delete' && action.id) {
+        setDeleteId(action.id)
+      }
+      if (action.type === 'view' && action.user) {
+        setSelectedUser(action.user)
+      }
+      return
+    }
+
+    setPendingSensitiveAction(action)
+    setReauthPassword('')
+    setReauthError('')
+    setReauthOpen(true)
+  }
+
+  const confirmSensitiveAuth = async () => {
+    if (!reauthPassword) {
+      setReauthError('Password is required')
+      return
+    }
+
+    setReauthLoading(true)
+    setReauthError('')
+    try {
+      await verifyPassword(reauthPassword)
+      markSensitiveAuthNow()
+      const action = pendingSensitiveAction
+      setPendingSensitiveAction(null)
+      setReauthOpen(false)
+      setReauthPassword('')
+
+      if (action?.type === 'edit' && action.user) {
+        setModal(action.user)
+      }
+      if (action?.type === 'delete' && action.id) {
+        setDeleteId(action.id)
+      }
+      if (action?.type === 'view' && action.user) {
+        setSelectedUser(action.user)
+      }
+    } catch (err) {
+      setReauthError(err.message || 'Password verification failed')
+    } finally {
+      setReauthLoading(false)
+    }
+  }
+
+  const branchName = (value) => {
+    if (!value) return '—'
+    if (typeof value === 'object') return value.name || '—'
+    return branches.find(b => b._id === value)?.name || '—'
+  }
+
+  const getBranchSortKey = (u) => {
+    if (!u.branchId) return ''
+    if (typeof u.branchId === 'object') return (u.branchId.name || '').toLowerCase()
+    return (branches.find(b => b._id === u.branchId)?.name || '').toLowerCase()
+  }
 
   const filtered = users.filter(u =>
     !search || `${u.firstName} ${u.lastName} ${u.email}`.toLowerCase().includes(search.toLowerCase())
   )
 
+  const sorted = useMemo(() => {
+    return [...filtered].sort((a, b) => {
+      let av, bv
+      if (col === 'name') { av = `${a.firstName} ${a.lastName}`.toLowerCase(); bv = `${b.firstName} ${b.lastName}`.toLowerCase() }
+      else if (col === 'email') { av = (a.email||'').toLowerCase(); bv = (b.email||'').toLowerCase() }
+      else if (col === 'role') { av = a.role||''; bv = b.role||'' }
+      else if (col === 'company') { av = (tenants.find(t => t.id === a.tenantId)?.name || '').toLowerCase(); bv = (tenants.find(t => t.id === b.tenantId)?.name || '').toLowerCase() }
+      else if (col === 'branch') { av = getBranchSortKey(a); bv = getBranchSortKey(b) }
+      else if (col === 'status') { av = a.isActive?'active':'inactive'; bv = b.isActive?'active':'inactive' }
+      else return 0
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [filtered, col, dir, branches])
+
+  const employeeMap = new Map(employees.map((employee) => [employee._id, employee]))
+
+  const formatDateTime = (value) => {
+    if (!value) return '—'
+    const date = new Date(value)
+    if (Number.isNaN(date.getTime())) return '—'
+    return date.toLocaleString()
+  }
+
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">User Accounts</h2>
-        <button onClick={() => setModal('create')}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+    <div className="flex-1 flex flex-col min-h-0">
+
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3.5
+                      border-b border-navy-500 bg-navy-800">
+        <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
+          User Accounts
+        </h1>
+        <Button variant="primary" size="md" onClick={() => setModal('create')}>
           + Add User
-        </button>
+        </Button>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div className="p-4 border-b">
-          <input placeholder="Search by name or email…"
-            className="w-full max-w-xs border border-gray-300 rounded-lg px-3 py-2 text-sm"
-            value={search} onChange={e => setSearch(e.target.value)} />
+      {/* Toolbar */}
+      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-navy-500/50 bg-navy-800">
+        <div className="ml-auto w-56">
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search name or email…"
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+          />
         </div>
+      </div>
 
+      {/* Table */}
+      <div className="flex-1 overflow-auto p-6">
         {loading ? (
-          <div className="p-8 text-center text-gray-400">Loading…</div>
+          <div className="flex items-center justify-center h-48"><Spinner size="lg" /></div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Name', 'Email', 'Role', 'Branch', 'Status', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {filtered.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-8 text-gray-400">No users found</td></tr>
-              ) : filtered.map(u => (
-                <tr key={u._id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-gray-800">
-                      {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
-                    </p>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{u.email}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${ROLE_COLOR[u.role] || 'bg-gray-100 text-gray-700'}`}>
-                      {ROLES.find(r => r.value === u.role)?.label || u.role}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">{u.branchId ? branchName(u.branchId) : '—'}</td>
-                  <td className="px-4 py-3">
-                    <span className={`px-2 py-0.5 rounded-full text-xs ${u.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                      {u.isActive ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-                    <button onClick={() => setModal(u)}
-                      className="text-xs px-2 py-1 rounded border hover:bg-gray-50">Edit</button>
-                    <button onClick={() => setDeleteId(u._id)}
-                      className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50">Delete</button>
-                  </td>
+          <div className="table-shell">
+            <table className="table-base">
+              <thead className="sticky top-0 z-10">
+                <tr className="table-head-row">
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('name')}>Name <SortIcon dir={col==='name'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('email')}>Email <SortIcon dir={col==='email'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('role')}>Role <SortIcon dir={col==='role'?dir:null}/></th>
+                  {user?.role === 'super_admin' && (
+                    <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('company')}>Company <SortIcon dir={col==='company'?dir:null}/></th>
+                  )}
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('branch')}>Branch <SortIcon dir={col==='branch'?dir:null}/></th>
+                  <th className="table-th cursor-pointer select-none hover:text-navy-100 transition-colors" onClick={() => toggle('status')}>Status <SortIcon dir={col==='status'?dir:null}/></th>
+                  <th className="table-th"></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {sorted.length === 0 ? (
+                  <tr>
+                    <td colSpan={user?.role === 'super_admin' ? 7 : 6} className="table-empty">
+                      No users found.
+                    </td>
+                  </tr>
+                ) : sorted.map((u, i) => (
+                  <tr key={u._id}
+                      className={`table-row cursor-pointer ${i % 2 !== 0 ? 'table-row-alt' : ''} ${selectedUser?._id === u._id ? 'bg-accent/10' : ''}`}
+                      onClick={() => requestSensitiveAction({ type: 'view', user: u })}>
+                  <td className="px-4 py-2.5 font-medium text-navy-100">
+                    {[u.firstName, u.lastName].filter(Boolean).join(' ') || '—'}
+                  </td>
+                  <td className="px-4 py-2.5 text-navy-300 font-mono">{u.email}</td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant={ROLE_VARIANT[u.role] ?? 'neutral'}>
+                      {ROLES.find(r => r.value === u.role)?.label ?? u.role}
+                    </Badge>
+                  </td>
+                  {user?.role === 'super_admin' && (
+                    <td className="px-4 py-2.5 text-navy-400 text-xs">
+                      {u.tenantId ? (tenants.find(t => t.id === u.tenantId)?.name || '—') : <span className="text-navy-500">All</span>}
+                    </td>
+                  )}
+                  <td className="px-4 py-2.5 text-navy-400">
+                    {u.branchId ? branchName(u.branchId) : '—'}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <Badge variant={u.isActive ? 'active' : 'inactive'}>
+                      {u.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </td>
+                  <td className="px-4 py-2.5">
+                    {(() => {
+                      const CLIENT_ADMIN_MANAGEABLE = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor']
+                      const canManage = user?.role === 'super_admin' || CLIENT_ADMIN_MANAGEABLE.includes(u.role)
+                      if (!canManage) return null
+                      return (
+                        <div className="flex items-center gap-3">
+                          <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'edit', user: u }) }}
+                            className="text-2xs text-accent hover:text-accent-200 transition-colors">
+                            Edit
+                          </button>
+                          <button onClick={(event) => { event.stopPropagation(); requestSensitiveAction({ type: 'delete', id: u._id }) }}
+                            className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">
+                            Delete
+                          </button>
+                        </div>
+                      )
+                    })()}
+                  </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {selectedUser && (
+          <div className="mt-5 table-shell p-5">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <p className="label-caps">User Profile</p>
+                <p className="mt-1 text-sm font-semibold text-navy-100">
+                  {[selectedUser.firstName, selectedUser.lastName].filter(Boolean).join(' ') || '—'}
+                </p>
+                <p className="text-2xs text-navy-300 mt-1">{selectedUser.email}</p>
+              </div>
+              {(() => {
+                const CLIENT_ADMIN_MANAGEABLE = ['client_admin', 'hr_payroll', 'branch_manager', 'employee', 'auditor']
+                const canManage = user?.role === 'super_admin' || CLIENT_ADMIN_MANAGEABLE.includes(selectedUser.role)
+                if (!canManage) return null
+                return (
+                  <div className="flex items-center gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => requestSensitiveAction({ type: 'edit', user: selectedUser })}>Edit User</Button>
+                    <Button size="sm" variant="danger" onClick={() => requestSensitiveAction({ type: 'delete', id: selectedUser._id })}>Delete User</Button>
+                  </div>
+                )
+              })()}
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
+                <p className="label-caps">Identity</p>
+                <p className="mt-2 text-xs text-navy-100">Role: {ROLES.find((role) => role.value === selectedUser.role)?.label || selectedUser.role || '—'}</p>
+                <p className="mt-1 text-xs text-navy-300">Status: {selectedUser.isActive ? 'Active' : 'Inactive'}</p>
+                <p className="mt-1 text-xs text-navy-300">Branch: {selectedUser.branchId ? branchName(selectedUser.branchId) : '—'}</p>
+              </div>
+
+              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
+                <p className="label-caps">Access Scope</p>
+                <p className="mt-2 text-xs text-navy-100 break-all">
+                  Tenant: {tenants.find(t => t.id === selectedUser.tenantId)?.name || selectedUser.tenantId || '—'}
+                </p>
+                <p className="mt-1 text-xs text-navy-300 break-all">Branch ID: {(typeof selectedUser.branchId === 'object' ? selectedUser.branchId?._id : selectedUser.branchId) || '—'}</p>
+                <p className="mt-1 text-xs text-navy-300 break-all">Employee Link ID: {(typeof selectedUser.employeeId === 'object' ? selectedUser.employeeId?._id : selectedUser.employeeId) || '—'}</p>
+              </div>
+
+              <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3">
+                <p className="label-caps">Audit</p>
+                <p className="mt-2 text-xs text-navy-100">Last Login: {formatDateTime(selectedUser.lastLoginAt)}</p>
+                <p className="mt-1 text-xs text-navy-300">Created: {formatDateTime(selectedUser.createdAt)}</p>
+                <p className="mt-1 text-xs text-navy-300">Updated: {formatDateTime(selectedUser.updatedAt)}</p>
+              </div>
+
+              {selectedUser.employeeId && (
+                <div className="rounded-md border border-navy-500 bg-navy-700/40 px-4 py-3 md:col-span-2 xl:col-span-3">
+                  <p className="label-caps">Linked Employee</p>
+                  <p className="mt-2 text-xs text-navy-100">
+                    {(() => {
+                      const linkedId = typeof selectedUser.employeeId === 'object' ? selectedUser.employeeId?._id : selectedUser.employeeId
+                      const linked = employeeMap.get(linkedId)
+                      if (!linked) return linkedId || '—'
+                      return `${linked.firstName || ''} ${linked.lastName || ''}`.trim() || linked.employeeCode || linkedId
+                    })()}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
@@ -221,23 +516,63 @@ export default function Users() {
         <UserModal
           initial={modal === 'create' ? null : modal}
           branches={branches}
+          employees={employees}
+          tenants={tenants}
+          currentUser={user}
           onClose={() => setModal(null)}
           onSave={handleSave}
         />
       )}
 
       {deleteId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-2xl p-6 w-80">
-            <p className="text-gray-800 font-medium mb-4">Delete this user?</p>
-            <p className="text-sm text-gray-500 mb-5">This action cannot be undone.</p>
-            <div className="flex gap-3">
-              <button onClick={() => setDeleteId(null)} className="flex-1 px-3 py-2 border rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleDelete} className="flex-1 px-3 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Delete</button>
-            </div>
+        <Modal
+          title="Delete User"
+          width="max-w-sm"
+          onClose={() => setDeleteId(null)}
+          onConfirm={handleDelete}
+          confirmLabel="Delete"
+          confirmVariant="danger"
+        >
+          <p className="text-sm text-navy-300">
+            This action cannot be undone. The user will lose all access immediately.
+          </p>
+        </Modal>
+      )}
+
+      {reauthOpen && (
+        <Modal
+          title="Sensitive Action"
+          subtitle="Re-enter your password to continue."
+          width="max-w-md"
+          onClose={() => { setReauthOpen(false); setPendingSensitiveAction(null) }}
+          onConfirm={confirmSensitiveAuth}
+          confirmLabel="Continue"
+          loading={reauthLoading}
+        >
+          <div className="space-y-3">
+            {reauthError && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">
+                {reauthError}
+              </p>
+            )}
+            <Input
+              label="Password"
+              type="password"
+              autoFocus
+              value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  confirmSensitiveAuth()
+                }
+              }}
+            />
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   )
 }
+
+

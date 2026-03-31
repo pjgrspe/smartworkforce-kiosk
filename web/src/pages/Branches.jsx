@@ -2,55 +2,68 @@
  * Branches Page — manage branches and departments.
  */
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   getBranches, createBranch, updateBranch, deleteBranch,
-  getDepartments, createDepartment, updateDepartment, deleteDepartment
+  getDepartments, createDepartment, updateDepartment, deleteDepartment, verifyPassword,
 } from '../config/api'
+import { hasFreshSensitiveAuth, markSensitiveAuthNow } from '../lib/sensitiveAuth'
+import { useAuth } from '../contexts/AuthContext'
+import Modal from '../components/ui/Modal'
+import { Input, Textarea, Select } from '../components/ui/Input'
+import Button from '../components/ui/Button'
+import Spinner from '../components/ui/Spinner'
 
-const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-400 outline-none'
+// ── Shared table styles ──────────────────────────────────────────────
+const th = 'label-caps px-4 py-2.5 text-left'
 
-function Modal({ title, onClose, onSave, saving, children }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
-        <div className="flex items-center justify-between p-5 border-b">
-          <h3 className="text-lg font-semibold">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
-        </div>
-        <div className="p-5 space-y-4">{children}</div>
-        <div className="flex justify-end gap-3 px-5 pb-5">
-          <button onClick={onClose} className="px-4 py-2 rounded-lg border text-gray-600 hover:bg-gray-50">Cancel</button>
-          <button onClick={onSave} disabled={saving}
-            className="px-5 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
+function SortIcon({ dir }) {
+  if (!dir) return <span className="ml-1 text-navy-500">↕</span>
+  return <span className="ml-1 text-accent">{dir === 'asc' ? '↑' : '↓'}</span>
+}
+
+function useSortable(initial, initialDir = 'asc') {
+  const [col, setCol] = useState(initial)
+  const [dir, setDir] = useState(initialDir)
+  const toggle = (c) => {
+    if (col === c) setDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setCol(c); setDir('asc') }
+  }
+  return { col, dir, toggle }
 }
 
 export default function Branches() {
+  const { user } = useAuth()
+  const isSuperAdmin = user?.role === 'super_admin'
+
   const [tab, setTab] = useState('branches')
+  const [search, setSearch] = useState('')
 
   const [branches, setBranches] = useState([])
   const [depts,    setDepts]    = useState([])
   const [loading,  setLoading]  = useState(true)
 
-  // Branch modal state
-  const [branchModal, setBranchModal] = useState(false)
-  const [branchEdit,  setBranchEdit]  = useState(null)
-  const [branchForm,  setBranchForm]  = useState({ name: '', code: '', address: '', phone: '' })
-  const [branchSaving, setBranchSaving] = useState(false)
-  const [branchErr,   setBranchErr]   = useState('')
+  const branchSort = useSortable('name')
+  const deptSort = useSortable('name')
 
-  // Department modal state
-  const [deptModal, setDeptModal] = useState(false)
-  const [deptEdit,  setDeptEdit]  = useState(null)
-  const [deptForm,  setDeptForm]  = useState({ name: '', code: '', description: '', branchId: '' })
+  // Branch modal
+  const [branchModal,  setBranchModal]  = useState(false)
+  const [branchEdit,   setBranchEdit]   = useState(null)
+  const [branchForm,   setBranchForm]   = useState({ name: '', code: '', address: '', phone: '' })
+  const [branchSaving, setBranchSaving] = useState(false)
+  const [branchErr,    setBranchErr]    = useState('')
+
+  // Dept modal
+  const [deptModal,  setDeptModal]  = useState(false)
+  const [deptEdit,   setDeptEdit]   = useState(null)
+  const [deptForm,   setDeptForm]   = useState({ name: '', code: '', description: '', branchId: '' })
   const [deptSaving, setDeptSaving] = useState(false)
-  const [deptErr,   setDeptErr]   = useState('')
+  const [deptErr,    setDeptErr]    = useState('')
+  const [reauthOpen, setReauthOpen] = useState(false)
+  const [reauthPassword, setReauthPassword] = useState('')
+  const [reauthError, setReauthError] = useState('')
+  const [reauthLoading, setReauthLoading] = useState(false)
+  const [pendingSensitiveAction, setPendingSensitiveAction] = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -67,22 +80,23 @@ export default function Branches() {
 
   useEffect(() => { load() }, [load])
 
-  // ── Branch handlers ───────────────────────────────────────────
+  // Reset search when switching tabs
+  const handleTabChange = (t) => { setTab(t); setSearch('') }
+
+  // ── Branch handlers ──────────────────────────────────────────────
   const openBranchCreate = () => {
     setBranchEdit(null)
     setBranchForm({ name: '', code: '', address: '', phone: '' })
     setBranchErr('')
     setBranchModal(true)
   }
-
   const openBranchEdit = (b) => {
     setBranchEdit(b._id)
     setBranchForm({ name: b.name, code: b.code, address: b.address || '', phone: b.phone || '' })
     setBranchErr('')
     setBranchModal(true)
   }
-
-  const saveBranch = async () => {
+  const saveBranchCore = async () => {
     setBranchErr('')
     setBranchSaving(true)
     try {
@@ -92,29 +106,26 @@ export default function Branches() {
     } catch (err) { setBranchErr(err.message) }
     finally { setBranchSaving(false) }
   }
-
-  const handleDeleteBranch = async (id) => {
+  const deleteBranchCore = async (id) => {
     if (!window.confirm('Delete this branch?')) return
     await deleteBranch(id)
     load()
   }
 
-  // ── Department handlers ───────────────────────────────────────
+  // ── Dept handlers ────────────────────────────────────────────────
   const openDeptCreate = () => {
     setDeptEdit(null)
     setDeptForm({ name: '', code: '', description: '', branchId: '' })
     setDeptErr('')
     setDeptModal(true)
   }
-
   const openDeptEdit = (d) => {
     setDeptEdit(d._id)
     setDeptForm({ name: d.name, code: d.code || '', description: d.description || '', branchId: d.branchId || '' })
     setDeptErr('')
     setDeptModal(true)
   }
-
-  const saveDept = async () => {
+  const saveDeptCore = async () => {
     setDeptErr('')
     setDeptSaving(true)
     try {
@@ -124,150 +135,328 @@ export default function Branches() {
     } catch (err) { setDeptErr(err.message) }
     finally { setDeptSaving(false) }
   }
-
-  const handleDeleteDept = async (id) => {
+  const deleteDeptCore = async (id) => {
     if (!window.confirm('Delete this department?')) return
     await deleteDepartment(id)
     load()
   }
 
-  return (
-    <div className="p-6">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Branches & Departments</h2>
+  const requestSensitiveAction = (action) => {
+    if (hasFreshSensitiveAuth()) {
+      if (action.type === 'save_branch') {
+        saveBranchCore()
+      }
+      if (action.type === 'delete_branch' && action.id) {
+        deleteBranchCore(action.id)
+      }
+      if (action.type === 'save_dept') {
+        saveDeptCore()
+      }
+      if (action.type === 'delete_dept' && action.id) {
+        deleteDeptCore(action.id)
+      }
+      return
+    }
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        {['branches', 'departments'].map(t => (
-          <button key={t} onClick={() => setTab(t)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === t ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 border'}`}>
-            {t.charAt(0).toUpperCase() + t.slice(1)}
-          </button>
-        ))}
+    setPendingSensitiveAction(action)
+    setReauthPassword('')
+    setReauthError('')
+    setReauthOpen(true)
+  }
+
+  const confirmSensitiveAuth = async () => {
+    if (!reauthPassword) {
+      setReauthError('Password is required')
+      return
+    }
+
+    setReauthLoading(true)
+    setReauthError('')
+    try {
+      await verifyPassword(reauthPassword)
+      markSensitiveAuthNow()
+      const action = pendingSensitiveAction
+      setPendingSensitiveAction(null)
+      setReauthOpen(false)
+      setReauthPassword('')
+
+      if (action?.type === 'save_branch') {
+        await saveBranchCore()
+      }
+      if (action?.type === 'delete_branch' && action.id) {
+        await deleteBranchCore(action.id)
+      }
+      if (action?.type === 'save_dept') {
+        await saveDeptCore()
+      }
+      if (action?.type === 'delete_dept' && action.id) {
+        await deleteDeptCore(action.id)
+      }
+    } catch (err) {
+      setReauthError(err.message || 'Password verification failed')
+    } finally {
+      setReauthLoading(false)
+    }
+  }
+
+  const saveBranch = () => requestSensitiveAction({ type: 'save_branch' })
+  const handleDeleteBranch = (id) => requestSensitiveAction({ type: 'delete_branch', id })
+  const saveDept = () => requestSensitiveAction({ type: 'save_dept' })
+  const handleDeleteDept = (id) => requestSensitiveAction({ type: 'delete_dept', id })
+
+  const filteredBranches = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q ? branches.filter(b =>
+      b.name?.toLowerCase().includes(q) || b.code?.toLowerCase().includes(q) || b.address?.toLowerCase().includes(q)
+    ) : branches
+    return [...list].sort((a, b) => {
+      const { col, dir } = branchSort
+      let av = col === 'code' ? (a.code||'') : col === 'name' ? (a.name||'') : ''
+      let bv = col === 'code' ? (b.code||'') : col === 'name' ? (b.name||'') : ''
+      av = av.toLowerCase(); bv = bv.toLowerCase()
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [branches, search, branchSort])
+
+  const filteredDepts = useMemo(() => {
+    const q = search.toLowerCase()
+    const list = q ? depts.filter(d =>
+      d.name?.toLowerCase().includes(q) || d.code?.toLowerCase().includes(q)
+    ) : depts
+    return [...list].sort((a, b) => {
+      const { col, dir } = deptSort
+      const branchA = branches.find(br => br._id === (a.branchId?._id || a.branchId))
+      const branchB = branches.find(br => br._id === (b.branchId?._id || b.branchId))
+      let av = col === 'code' ? (a.code||'') : col === 'name' ? (a.name||'') : col === 'branch' ? (branchA?.name||'') : ''
+      let bv = col === 'code' ? (b.code||'') : col === 'name' ? (b.name||'') : col === 'branch' ? (branchB?.name||'') : ''
+      av = av.toLowerCase(); bv = bv.toLowerCase()
+      if (av < bv) return dir === 'asc' ? -1 : 1
+      if (av > bv) return dir === 'asc' ? 1 : -1
+      return 0
+    })
+  }, [depts, branches, search, deptSort])
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+
+      {/* Page header */}
+      <div className="flex items-center justify-between px-6 py-3.5
+                      border-b border-navy-500 bg-navy-800">
+        <h1 className="text-xs font-semibold text-navy-100 uppercase tracking-wider">
+          Branches &amp; Departments
+        </h1>
+        {(isSuperAdmin || tab !== 'branches') && (
+          <Button
+            variant="primary"
+            size="md"
+            onClick={tab === 'branches' ? openBranchCreate : openDeptCreate}
+          >
+            + Add {tab === 'branches' ? 'Branch' : 'Department'}
+          </Button>
+        )}
       </div>
 
-      {loading ? (
-        <div className="text-center py-12 text-gray-400">Loading…</div>
-      ) : tab === 'branches' ? (
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-4 border-b flex justify-between items-center">
-            <span className="font-semibold text-gray-700">Branches ({branches.length})</span>
-            <button onClick={openBranchCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              + Add Branch
+      {/* Tab bar */}
+      <div className="flex items-center gap-3 px-6 py-2.5 border-b border-navy-500/50 bg-navy-800">
+        <div className="flex gap-1">
+          {['branches', 'departments'].map(t => (
+            <button
+              key={t}
+              onClick={() => handleTabChange(t)}
+              className={`px-4 h-7 text-xs font-medium uppercase tracking-wider
+                         transition-colors duration-80 rounded-md
+                         ${tab === t
+                           ? 'bg-accent text-white'
+                           : 'text-navy-300 hover:text-navy-100 hover:bg-navy-700'}`}
+            >
+              {t}
             </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Code', 'Name', 'Address', 'Phone', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {branches.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No branches yet</td></tr>
-              ) : branches.map(b => (
-                <tr key={b._id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 font-mono text-xs">{b.code}</td>
-                  <td className="px-4 py-3 font-medium">{b.name}</td>
-                  <td className="px-4 py-3 text-gray-500">{b.address || '—'}</td>
-                  <td className="px-4 py-3 text-gray-500">{b.phone || '—'}</td>
-                  <td className="px-4 py-3">
-                    <button onClick={() => openBranchEdit(b)} className="text-blue-600 hover:underline mr-3 text-xs">Edit</button>
-                    <button onClick={() => handleDeleteBranch(b._id)} className="text-red-500 hover:underline text-xs">Delete</button>
-                  </td>
+          ))}
+        </div>
+        <div className="ml-auto w-56">
+          <input
+            className="w-full h-8 px-3 text-xs bg-navy-700 border border-navy-500 text-navy-100 placeholder:text-navy-400 rounded-md focus:outline-none focus:border-accent"
+            placeholder={tab === 'branches' ? 'Search branches…' : 'Search departments…'}
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="flex-1 overflow-auto p-6">
+        {loading ? (
+          <div className="flex items-center justify-center h-48"><Spinner size="lg" /></div>
+        ) : tab === 'branches' ? (
+          <div className="table-shell">
+            <table className="table-base">
+              <thead className="sticky top-0 z-10">
+                <tr className="table-head-row">
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => branchSort.toggle('code')}>Code <SortIcon dir={branchSort.col==='code'?branchSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => branchSort.toggle('name')}>Name <SortIcon dir={branchSort.col==='name'?branchSort.dir:null}/></th>
+                  <th className={th}>Address</th>
+                  <th className={th}>Phone</th>
+                  <th className={th}>Actions</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="bg-white rounded-xl shadow-sm border">
-          <div className="p-4 border-b flex justify-between items-center">
-            <span className="font-semibold text-gray-700">Departments ({depts.length})</span>
-            <button onClick={openDeptCreate} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">
-              + Add Department
-            </button>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Code', 'Name', 'Branch', 'Description', 'Actions'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {depts.length === 0 ? (
-                <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">No departments yet</td></tr>
-              ) : depts.map(d => {
-                const branch = branches.find(b => b._id === (d.branchId?._id || d.branchId))
-                return (
-                  <tr key={d._id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs">{d.code || '—'}</td>
-                    <td className="px-4 py-3 font-medium">{d.name}</td>
-                    <td className="px-4 py-3 text-gray-500">{branch?.name || '—'}</td>
-                    <td className="px-4 py-3 text-gray-400 text-xs">{d.description || '—'}</td>
-                    <td className="px-4 py-3">
-                      <button onClick={() => openDeptEdit(d)} className="text-blue-600 hover:underline mr-3 text-xs">Edit</button>
-                      <button onClick={() => handleDeleteDept(d._id)} className="text-red-500 hover:underline text-xs">Delete</button>
-                    </td>
+              </thead>
+              <tbody>
+                {filteredBranches.length === 0 ? (
+                  <tr><td colSpan={5} className="table-empty">No branches yet.</td></tr>
+                ) : filteredBranches.map((b, i) => (
+                  <tr key={b._id}
+                      className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                  <td className="px-4 py-2.5 font-mono text-navy-300">{b.code}</td>
+                  <td className="px-4 py-2.5 font-medium text-navy-100">{b.name}</td>
+                  <td className="px-4 py-2.5 text-navy-300">{b.address || '—'}</td>
+                  <td className="px-4 py-2.5 text-navy-300">{b.phone || '—'}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <button onClick={() => openBranchEdit(b)}
+                        className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                      <button onClick={() => handleDeleteBranch(b._id)}
+                        className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                    </div>
+                  </td>
                   </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="table-shell">
+            <table className="table-base">
+              <thead className="sticky top-0 z-10">
+                <tr className="table-head-row">
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('code')}>Code <SortIcon dir={deptSort.col==='code'?deptSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('name')}>Name <SortIcon dir={deptSort.col==='name'?deptSort.dir:null}/></th>
+                  <th className={`${th} cursor-pointer select-none hover:text-navy-100 transition-colors`} onClick={() => deptSort.toggle('branch')}>Branch <SortIcon dir={deptSort.col==='branch'?deptSort.dir:null}/></th>
+                  <th className={th}>Description</th>
+                  <th className={th}>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDepts.length === 0 ? (
+                  <tr><td colSpan={5} className="table-empty">No departments yet.</td></tr>
+                ) : filteredDepts.map((d, i) => {
+                  const branch = branches.find(b => b._id === (d.branchId?._id || d.branchId))
+                  return (
+                    <tr key={d._id}
+                        className={`table-row ${i % 2 !== 0 ? 'table-row-alt' : ''}`}>
+                    <td className="px-4 py-2.5 font-mono text-navy-300">{d.code || '—'}</td>
+                    <td className="px-4 py-2.5 font-medium text-navy-100">{d.name}</td>
+                    <td className="px-4 py-2.5 text-navy-300">{branch?.name || '—'}</td>
+                    <td className="px-4 py-2.5 text-navy-400">{d.description || '—'}</td>
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <button onClick={() => openDeptEdit(d)}
+                          className="text-2xs text-accent hover:text-accent-200 transition-colors">Edit</button>
+                        <button onClick={() => handleDeleteDept(d._id)}
+                          className="text-2xs text-signal-danger/70 hover:text-signal-danger transition-colors">Delete</button>
+                      </div>
+                    </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Branch Modal */}
       {branchModal && (
-        <Modal title={branchEdit ? 'Edit Branch' : 'Add Branch'} onClose={() => setBranchModal(false)} onSave={saveBranch} saving={branchSaving}>
-          {branchErr && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{branchErr}</div>}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Code *</label>
-            <input className={inputCls} value={branchForm.code} onChange={e => setBranchForm(p => ({ ...p, code: e.target.value }))} placeholder="e.g. HQ" />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-            <input className={inputCls} value={branchForm.name} onChange={e => setBranchForm(p => ({ ...p, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
-            <input className={inputCls} value={branchForm.address} onChange={e => setBranchForm(p => ({ ...p, address: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Phone</label>
-            <input className={inputCls} value={branchForm.phone} onChange={e => setBranchForm(p => ({ ...p, phone: e.target.value }))} />
+        <Modal
+          title={branchEdit ? 'Edit Branch' : 'Add Branch'}
+          width="max-w-md"
+          onClose={() => setBranchModal(false)}
+          onConfirm={saveBranch}
+          confirmLabel="Save"
+          loading={branchSaving}
+        >
+          <div className="space-y-3">
+            {branchErr && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8
+                            border border-signal-danger/25 rounded-md">{branchErr}</p>
+            )}
+            <Input label="Code *" value={branchForm.code}
+              onChange={e => setBranchForm(p => ({ ...p, code: e.target.value }))} placeholder="e.g. HQ" />
+            <Input label="Name *" value={branchForm.name}
+              onChange={e => setBranchForm(p => ({ ...p, name: e.target.value }))} />
+            <Input label="Address" value={branchForm.address}
+              onChange={e => setBranchForm(p => ({ ...p, address: e.target.value }))} />
+            <Input label="Phone" value={branchForm.phone}
+              onChange={e => setBranchForm(p => ({ ...p, phone: e.target.value }))} />
           </div>
         </Modal>
       )}
 
       {/* Department Modal */}
       {deptModal && (
-        <Modal title={deptEdit ? 'Edit Department' : 'Add Department'} onClose={() => setDeptModal(false)} onSave={saveDept} saving={deptSaving}>
-          {deptErr && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{deptErr}</div>}
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Name *</label>
-            <input className={inputCls} value={deptForm.name} onChange={e => setDeptForm(p => ({ ...p, name: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Code</label>
-            <input className={inputCls} value={deptForm.code} onChange={e => setDeptForm(p => ({ ...p, code: e.target.value }))} />
-          </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Branch</label>
-            <select className={inputCls} value={deptForm.branchId} onChange={e => setDeptForm(p => ({ ...p, branchId: e.target.value }))}>
+        <Modal
+          title={deptEdit ? 'Edit Department' : 'Add Department'}
+          width="max-w-md"
+          onClose={() => setDeptModal(false)}
+          onConfirm={saveDept}
+          confirmLabel="Save"
+          loading={deptSaving}
+        >
+          <div className="space-y-3">
+            {deptErr && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8
+                            border border-signal-danger/25 rounded-md">{deptErr}</p>
+            )}
+            <Input label="Name *" value={deptForm.name}
+              onChange={e => setDeptForm(p => ({ ...p, name: e.target.value }))} />
+            <Input label="Code" value={deptForm.code}
+              onChange={e => setDeptForm(p => ({ ...p, code: e.target.value }))} />
+            <Select label="Branch" value={deptForm.branchId}
+              onChange={e => setDeptForm(p => ({ ...p, branchId: e.target.value }))}>
               <option value="">None</option>
               {branches.map(b => <option key={b._id} value={b._id}>{b.name}</option>)}
-            </select>
+            </Select>
+            <Textarea label="Description" rows={2} value={deptForm.description}
+              onChange={e => setDeptForm(p => ({ ...p, description: e.target.value }))} />
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-600 mb-1">Description</label>
-            <textarea className={inputCls} rows={2} value={deptForm.description} onChange={e => setDeptForm(p => ({ ...p, description: e.target.value }))} />
+        </Modal>
+      )}
+
+      {reauthOpen && (
+        <Modal
+          title="Sensitive Action"
+          subtitle="Re-enter your password to continue."
+          width="max-w-md"
+          onClose={() => { setReauthOpen(false); setPendingSensitiveAction(null) }}
+          onConfirm={confirmSensitiveAuth}
+          confirmLabel="Continue"
+          loading={reauthLoading}
+        >
+          <div className="space-y-3">
+            {reauthError && (
+              <p className="text-2xs text-signal-danger px-3 py-2 bg-signal-danger/8 border border-signal-danger/25 rounded-md">
+                {reauthError}
+              </p>
+            )}
+            <Input
+              label="Password"
+              type="password"
+              autoFocus
+              value={reauthPassword}
+              onChange={(e) => setReauthPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  confirmSensitiveAuth()
+                }
+              }}
+            />
           </div>
         </Modal>
       )}
     </div>
   )
 }
+
+
+

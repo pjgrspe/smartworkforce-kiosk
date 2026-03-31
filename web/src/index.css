@@ -1,41 +1,259 @@
+/* ── Primary typeface ──────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+:root,
+[data-theme='dark'] {
+  --c-navy-950: 8 10 14;
+  --c-navy-900: 12 14 19;
+  --c-navy-800: 19 22 29;
+  --c-navy-700: 28 32 41;
+  --c-navy-600: 37 42 53;
+  --c-navy-500: 55 62 76;
+  --c-navy-400: 95 104 121;
+  --c-navy-300: 142 151 169;
+  --c-navy-200: 185 194 210;
+  --c-navy-100: 224 230 240;
+  --c-navy-50: 237 241 247;
+
+  /* Slightly more electric blue — closer to DE WEBNET's vivid blue */
+  --c-accent: 30 110 255;
+  --c-accent-50: 236 245 255;
+  --c-accent-100: 214 234 255;
+  --c-accent-200: 182 218 255;
+  --c-accent-400: 90 160 255;
+  --c-accent-500: 30 110 255;
+  --c-accent-600: 14 88 240;
+  --c-accent-700: 10 65 200;
+  --c-accent-muted: 18 46 130;
+  --c-accent-subtle: 12 28 80;
+
+  /* DE WEBNET brand green — lime/chartreuse signature colour */
+  --c-brand-green: 132 204 22;
+  --c-brand-green-400: 163 230 53;
+  --c-brand-green-muted: 54 83 18;
+  --c-brand-green-subtle: 26 46 6;
+
+  --c-signal-success: 16 185 129;
+  --c-signal-warning: 245 158 11;
+  --c-signal-danger: 239 68 68;
+  --c-signal-info: 6 182 212;
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+[data-theme='light'] {
+  --c-navy-950: 225 232 242;
+  --c-navy-900: 241 245 251;
+  --c-navy-800: 233 239 248;
+  --c-navy-700: 223 232 244;
+  --c-navy-600: 214 226 240;
+  --c-navy-500: 152 174 199;
+  --c-navy-400: 82 106 136;
+  --c-navy-300: 58 79 106;
+  --c-navy-200: 39 58 84;
+  --c-navy-100: 26 43 67;
+  --c-navy-50: 23 38 60;
+
+  /* DE WEBNET brand green — saturated for light backgrounds */
+  --c-brand-green: 90 160 10;
+  --c-brand-green-400: 113 190 20;
+  --c-brand-green-muted: 220 245 185;
+  --c-brand-green-subtle: 240 252 225;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Raise contrast for commonly used muted navy text classes in both themes */
+[data-theme='dark'] .text-navy-500 { color: rgb(var(--c-navy-300) / 1) !important; }
+[data-theme='dark'] .text-navy-400 { color: rgb(var(--c-navy-200) / 1) !important; }
+[data-theme='dark'] .text-navy-300 { color: rgb(var(--c-navy-100) / 1) !important; }
+
+[data-theme='light'] .text-navy-500 { color: rgb(var(--c-navy-400) / 1) !important; }
+[data-theme='light'] .text-navy-400 { color: rgb(var(--c-navy-300) / 1) !important; }
+[data-theme='light'] .text-navy-300 { color: rgb(var(--c-navy-200) / 1) !important; }
+
+/* Improve readability for legacy gray utilities in light mode */
+[data-theme='light'] .text-gray-400 { color: rgb(var(--c-navy-200) / 1) !important; }
+[data-theme='light'] .text-gray-500 { color: rgb(var(--c-navy-100) / 1) !important; }
+[data-theme='light'] .text-gray-600 { color: rgb(var(--c-navy-50) / 1) !important; }
+[data-theme='light'] .text-gray-700 { color: rgb(var(--c-navy-50) / 1) !important; }
+
+/* Improve readability for legacy gray utilities in dark mode */
+[data-theme='dark'] .text-gray-400 { color: rgb(var(--c-navy-200) / 1) !important; }
+[data-theme='dark'] .text-gray-500 { color: rgb(var(--c-navy-300) / 1) !important; }
+[data-theme='dark'] .text-gray-600 { color: rgb(var(--c-navy-300) / 1) !important; }
+[data-theme='dark'] .text-gray-700 { color: rgb(var(--c-navy-400) / 1) !important; }
+
+/* ── Base reset & global defaults ──────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-feature-settings: 'rlig' 1, 'calt' 1, 'kern' 1, 'tnum' 1;
+    font-variant-numeric: tabular-nums;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: rgb(var(--c-navy-900));
+    color: rgb(var(--c-navy-100));
+    font-family: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: rgb(var(--c-brand-green) / 0.18);
+    color: rgb(var(--c-navy-50));
+  }
+
+  /* Remove focus outline; we apply our own via focus-visible */
+  :focus { outline: none; }
 }
 
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+/* ── Component layer ───────────────────────────────────────────────── */
+@layer components {
+  /* Scrollbar */
+  ::-webkit-scrollbar       { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: rgb(var(--c-navy-950)); }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--c-navy-500)); border-radius: 9999px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--c-brand-green) / 0.75); }
+  ::-webkit-scrollbar-corner { background: rgb(var(--c-navy-950)); }
+
+  /* Standard focus ring for keyboard navigation */
+  .focus-ring {
+    @apply focus-visible:ring-2 focus-visible:ring-accent/60
+           focus-visible:ring-offset-2 focus-visible:ring-offset-navy-800;
+  }
+
+  /* Shared form input base */
+  .field-base {
+    @apply w-full h-9 px-3 text-sm
+           bg-navy-600 border border-navy-500 text-navy-100
+           placeholder:text-navy-300/85
+           transition-colors duration-80 rounded-md;
+  }
+  .field-base:focus-visible {
+    border-color: rgb(var(--c-accent));
+    box-shadow: 0 0 0 1px rgb(var(--c-accent) / 0.25);
+    outline: none;
+  }
+
+  /* Shared table system */
+  .table-shell {
+    @apply border border-navy-500 rounded-lg overflow-hidden bg-navy-700;
+  }
+
+  .table-base {
+    @apply w-full text-xs;
+  }
+
+  .table-head-row {
+    @apply bg-navy-800 border-b border-navy-500;
+  }
+
+  .table-th {
+    @apply label-caps px-4 py-2.5 text-left;
+  }
+
+  .table-row {
+    @apply border-b border-navy-500/30 hover:bg-navy-600/20 transition-colors duration-80;
+  }
+
+  .table-row-alt {
+    @apply bg-navy-700/20;
+  }
+
+  .table-empty {
+    @apply px-4 py-10 text-center text-2xs text-navy-300;
+  }
+
+  .run-nav-shell {
+    background: rgb(var(--c-navy-800) / 0.6);
+    border-color: rgb(var(--c-navy-500) / 0.34);
+  }
+
+  .run-nav-header {
+    background: rgb(var(--c-navy-900) / 0.34);
+    border-color: rgb(var(--c-navy-500) / 0.28);
+  }
+
+  .run-nav-list {
+    background: rgb(var(--c-navy-900) / 0.2);
+  }
+
+  .run-nav-divider {
+    border-color: rgb(var(--c-navy-500) / 0.2);
+  }
+
+  .run-nav-item {
+    background: rgb(var(--c-navy-900) / 0.22);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-500) / 0.14);
+  }
+
+  .run-nav-item:hover {
+    background: rgb(var(--c-navy-700) / 0.42);
+  }
+
+  .run-nav-item-active {
+    background: rgb(var(--c-navy-700) / 0.82);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.18),
+                inset 2px 0 0 rgb(var(--c-brand-green) / 0.55);
+  }
+
+  [data-theme='light'] .run-nav-shell {
+    background: rgb(var(--c-navy-900) / 0.82);
+    border-color: rgb(var(--c-navy-500) / 0.38);
+  }
+
+  [data-theme='light'] .run-nav-header {
+    background: rgb(var(--c-navy-800) / 0.72);
+    border-color: rgb(var(--c-navy-500) / 0.34);
+  }
+
+  [data-theme='light'] .run-nav-list {
+    background: rgb(var(--c-navy-950) / 0.44);
+  }
+
+  [data-theme='light'] .run-nav-divider {
+    border-color: rgb(var(--c-navy-500) / 0.3);
+  }
+
+  [data-theme='light'] .run-nav-item {
+    background: rgb(var(--c-navy-900) / 0.54);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-500) / 0.22);
+  }
+
+  [data-theme='light'] .run-nav-item:hover {
+    background: rgb(var(--c-navy-800) / 0.92);
+  }
+
+  [data-theme='light'] .run-nav-item-active {
+    background: rgb(var(--c-navy-700) / 0.96);
+    box-shadow: inset 0 -1px 0 rgb(var(--c-navy-400) / 0.26),
+                inset 2px 0 0 rgb(var(--c-brand-green) / 0.65);
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #1f2937;
-}
+/* ── Utility layer ─────────────────────────────────────────────────── */
+@layer utilities {
+  /* Unify typography: map any legacy mono usage to the primary UI font */
+  .font-mono {
+    font-family: 'Plus Jakarta Sans', 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif !important;
+    letter-spacing: 0.01em;
+  }
 
-::-webkit-scrollbar-thumb {
-  background: #4b5563;
-  border-radius: 4px;
-}
+  /* Tabular-nums for data */
+  .tabular { font-variant-numeric: tabular-nums; }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #6b7280;
+  /* Category / section label caps — used consistently throughout UI */
+  .label-caps {
+    @apply text-2xs font-medium uppercase tracking-[0.11em] text-navy-400;
+  }
+
+  /* Horizontal rule with consistent colour */
+  .rule { @apply border-navy-500; }
 }

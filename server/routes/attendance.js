@@ -4,84 +4,97 @@
 
 const express       = require('express');
 const router        = express.Router();
-const AttendanceLog = require('../models/AttendanceLog');
 const { authenticate, authorize } = require('../middleware/auth');
 const logger        = require('../utils/logger');
+const { getAttendanceRepository } = require('../repositories/attendance');
+
+function parseLimit(value, fallback) {
+  const parsed = parseInt(value, 10);
+  if (Number.isNaN(parsed) || parsed <= 0) return fallback;
+  return parsed;
+}
+
+function sendRepositoryError(res, err) {
+  if (err && err.code === 'NOT_IMPLEMENTED') {
+    return res.status(501).json({ error: err.message });
+  }
+  return res.status(500).json({ error: err.message });
+}
 
 router.use(authenticate);
+
+// GET /api/attendance/me — current authenticated employee attendance
+router.get('/me', async (req, res) => {
+  try {
+    if (!req.user.employeeId) {
+      return res.status(404).json({ error: 'No employee profile is linked to this account' });
+    }
+
+    const { start_date, end_date, limit } = req.query;
+    const attendanceRepo = getAttendanceRepository();
+    const rows = await attendanceRepo.getMyAttendance({
+      user: req.user,
+      startDate: start_date,
+      endDate: end_date,
+      limit: parseLimit(limit, 100),
+    });
+
+    return res.json({ data: rows });
+  } catch (err) {
+    logger.error('GET /attendance/me:', err.message);
+    return sendRepositoryError(res, err);
+  }
+});
 
 // GET /api/attendance — filtered list
 router.get('/', async (req, res) => {
   try {
     const { employeeId, branchId, start_date, end_date, limit } = req.query;
-
-    const filter = { tenantId: req.user.tenantId };
-    if (employeeId)  filter.employeeId  = employeeId;
-    if (branchId)    filter.branchId    = branchId;
-    if (start_date || end_date) {
-      filter.timestamp = {};
-      if (start_date) filter.timestamp.$gte = new Date(start_date);
-      if (end_date) {
-        const end = new Date(end_date);
-        end.setHours(23, 59, 59, 999);          // include the whole day
-        filter.timestamp.$lte = end;
-      }
-    }
-
-    // Branch managers see only their branch
-    if (req.user.role === 'branch_manager' && req.user.branchId) {
-      filter.branchId = req.user.branchId;
-    }
-
-    const rows = await AttendanceLog.find(filter)
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .sort({ timestamp: -1 })
-      .limit(parseInt(limit) || 200)
-      .lean();
+    const attendanceRepo = getAttendanceRepository();
+    const rows = await attendanceRepo.listAttendance({
+      user: req.user,
+      employeeId,
+      branchId,
+      startDate: start_date,
+      endDate: end_date,
+      limit: parseLimit(limit, 200),
+    });
 
     return res.json({ data: rows });
   } catch (err) {
     logger.error('GET /attendance:', err.message);
-    return res.status(500).json({ error: err.message });
+    return sendRepositoryError(res, err);
   }
 });
 
 // GET /api/attendance/today
 router.get('/today', async (req, res) => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  req.query.start_date = today.toISOString();
-  // re-use the main handler
-  const filter = { tenantId: req.user.tenantId, timestamp: { $gte: today } };
-  if (req.user.role === 'branch_manager' && req.user.branchId) {
-    filter.branchId = req.user.branchId;
-  }
   try {
-    const rows = await AttendanceLog.find(filter)
-      .populate('employeeId', 'firstName lastName employeeCode')
-      .sort({ timestamp: -1 })
-      .lean();
+    const attendanceRepo = getAttendanceRepository();
+    const rows = await attendanceRepo.listToday({ user: req.user });
     return res.json({ data: rows });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    logger.error('GET /attendance/today:', err.message);
+    return sendRepositoryError(res, err);
   }
 });
 
 // POST /api/attendance — admin/HR manual entry
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll', 'branch_manager'), async (req, res) => {
   try {
-    const log = await new AttendanceLog({
-      ...req.body,
-      tenantId: req.user.tenantId,
-      source: 'admin_correction',
-      synced: true,
-      syncedAt: new Date()
-    }).save();
+    const attendanceRepo = getAttendanceRepository();
+    const log = await attendanceRepo.createManualAttendance({
+      user: req.user,
+      payload: req.body,
+    });
 
-    logger.info(`Manual attendance log created: ${log._id}`);
-    return res.status(201).json({ data: log.toObject() });
+    logger.info(`Manual attendance log created: ${log._id || log.id}`);
+    return res.status(201).json({ data: log });
   } catch (err) {
     logger.error('POST /attendance:', err.message);
+    if (err && err.code === 'NOT_IMPLEMENTED') {
+      return res.status(501).json({ error: err.message });
+    }
     return res.status(400).json({ error: err.message });
   }
 });

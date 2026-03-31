@@ -4,10 +4,8 @@
  * per employee per calendar day within a cutoff period.
  */
 
-const AttendanceLog = require('../models/AttendanceLog');
-const Schedule      = require('../models/Schedule');
-const Employee      = require('../models/Employee');
-const Holiday       = require('../models/Holiday');
+const { getPool } = require('../config/postgres');
+const { getEmployeeDayOffRepository } = require('../repositories/employee-day-off');
 
 /** Parse "HH:mm" string → minutes from midnight */
 function timeStrToMinutes(str) {
@@ -69,27 +67,97 @@ function calcNightDiffMinutes(actualInMin, actualOutMin, ndStart, ndEnd) {
  * @param {object}  tenantSettings  – from Tenant.settings
  */
 async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSettings = {}) {
-  const employee = await Employee.findById(employeeId).lean();
-  if (!employee) throw new Error(`Employee ${employeeId} not found`);
+  const pool = getPool();
+  const employeeRes = await pool.query(
+    `
+      SELECT id, tenant_id, employee_code, first_name, last_name, schedule_id
+      FROM employees
+      WHERE id = $1
+      LIMIT 1
+    `,
+    [employeeId],
+  );
 
-  // Fetch attendance logs (add one extra day buffer)
+  if (!employeeRes.rowCount) throw new Error(`Employee ${employeeId} not found`);
+  const employeeRow = employeeRes.rows[0];
+  const employee = {
+    _id: employeeRow.id,
+    tenantId: employeeRow.tenant_id,
+    employeeCode: employeeRow.employee_code,
+    firstName: employeeRow.first_name,
+    lastName: employeeRow.last_name,
+    scheduleId: employeeRow.schedule_id,
+  };
+
   const endBuffer = new Date(new Date(cutoffEnd).getTime() + 86_400_000);
-  const logs = await AttendanceLog.find({
-    employeeId,
-    timestamp: { $gte: new Date(cutoffStart), $lte: endBuffer }
-  }).sort('timestamp').lean();
+  const logRes = await pool.query(
+    `
+      SELECT timestamp, type
+      FROM attendance_logs
+      WHERE employee_id = $1
+        AND timestamp >= $2
+        AND timestamp <= $3
+      ORDER BY timestamp ASC
+    `,
+    [employeeId, new Date(cutoffStart), endBuffer],
+  );
+  const logs = logRes.rows;
 
-  // Fetch holidays
-  const holidays = await Holiday.find({
-    tenantId: employee.tenantId,
-    date: { $gte: new Date(cutoffStart), $lte: new Date(cutoffEnd) }
-  }).lean();
+  const holidayRes = await pool.query(
+    `
+      SELECT date, type
+      FROM holidays
+      WHERE tenant_id = $1
+        AND date >= $2
+        AND date <= $3
+    `,
+    [employee.tenantId, new Date(cutoffStart), new Date(cutoffEnd)],
+  );
+  const holidays = holidayRes.rows;
 
-  // Resolve schedule (per-employee if set, else tenant defaults)
+  const dayOffRepo = getEmployeeDayOffRepository();
+  const employeeDayOffs = await dayOffRepo.listForRange({
+    tenantId:   employee.tenantId,
+    employeeId: employee._id,
+    startDate:  new Date(cutoffStart),
+    endDate:    new Date(cutoffEnd),
+  });
+
   let schedule = null;
   if (employee.scheduleId) {
-    schedule = await Schedule.findById(employee.scheduleId).lean();
+    const scheduleRes = await pool.query(
+      `
+        SELECT
+          id,
+          shift_start,
+          shift_end,
+          break_duration_minutes,
+          is_paid_break,
+          grace_period_minutes,
+          rounding_rule_minutes,
+          rest_days
+        FROM schedules
+        WHERE id = $1
+        LIMIT 1
+      `,
+      [employee.scheduleId],
+    );
+
+    if (scheduleRes.rowCount) {
+      const row = scheduleRes.rows[0];
+      schedule = {
+        _id: row.id,
+        shiftStart: row.shift_start,
+        shiftEnd: row.shift_end,
+        breakDurationMinutes: row.break_duration_minutes,
+        isPaidBreak: row.is_paid_break,
+        gracePeriodMinutes: row.grace_period_minutes,
+        roundingRuleMinutes: row.rounding_rule_minutes,
+        restDays: Array.isArray(row.rest_days) ? row.rest_days : [],
+      };
+    }
   }
+
   if (!schedule) {
     schedule = {
       shiftStart:            '08:00',
@@ -104,6 +172,15 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
 
   const ndStart = timeStrToMinutes(tenantSettings.nightDiffWindow?.start || '22:00');
   const ndEnd   = timeStrToMinutes(tenantSettings.nightDiffWindow?.end   || '06:00');
+  const scheduledStartMin = timeStrToMinutes(schedule.shiftStart) || 480; // 08:00
+  const scheduledEndMin   = timeStrToMinutes(schedule.shiftEnd)   || 1020; // 17:00
+  const grace             = schedule.gracePeriodMinutes || 5;
+  const rounding          = schedule.roundingRuleMinutes || 0;
+  const unpaidBreak       = schedule.isPaidBreak ? 0 : (schedule.breakDurationMinutes || 0);
+  let scheduledWork       = scheduledEndMin - scheduledStartMin;
+  if (scheduledWork < 0) scheduledWork += 1440;
+  const scheduledEffective = Math.max(0, scheduledWork - unpaidBreak);
+  const shiftCrossesMidnight = scheduledEndMin <= scheduledStartMin;
 
   // Group logs by Manila date
   const logsByDate = {};
@@ -120,17 +197,56 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     const dateStr   = toManilaDateStr(d);
     const dayOfWeek = new Date(d).getDay(); // 0=Sun … 6=Sat
 
-    const isRestDay   = (schedule.restDays || []).includes(dayOfWeek);
+    const scheduleRestDay = (schedule.restDays || []).includes(dayOfWeek);
+    const dayOff          = employeeDayOffs.find(x => x.date === dateStr) || null;
+    const isPaidLeave     = !!dayOff?.isPaid;
+    const isFullDayOff    = dayOff?.type === 'full_day' && !isPaidLeave;
+    const isRestDay       = scheduleRestDay || isFullDayOff;
+
     const holiday     = holidays.find(h => toManilaDateStr(h.date) === dateStr);
     const isHoliday   = !!holiday;
     const holidayType = holiday?.type || null;
 
     const dayLogs = logsByDate[dateStr] || [];
     const inLog   = dayLogs.find(l => l.type === 'IN');
-    const outLog  = [...dayLogs].reverse().find(l => l.type === 'OUT');
+    let outLog    = [...dayLogs].reverse().find(l => l.type === 'OUT');
 
-    const isAbsent     = !inLog && !isRestDay;
+    if (!outLog && inLog && shiftCrossesMidnight) {
+      const nextDay = new Date(d);
+      nextDay.setDate(nextDay.getDate() + 1);
+      const nextDateStr = toManilaDateStr(nextDay);
+      outLog = (logsByDate[nextDateStr] || []).find((log) => log.type === 'OUT');
+    }
+
+    const isAbsent     = !inLog && !isRestDay && !isPaidLeave;
     const isMissingOut = !!inLog && !outLog;
+
+    // Compute effective schedule boundaries for partial day-offs
+    let effectiveStartMin = scheduledStartMin;
+    let effectiveEndMin   = scheduledEndMin;
+    let effectiveWork     = scheduledEffective;
+
+    if (dayOff && !isFullDayOff) {
+      const midpoint = Math.round((scheduledStartMin + scheduledEndMin) / 2);
+      if (dayOff.type === 'half_day_am') {
+        // Morning off — employee expected from midpoint onwards
+        effectiveStartMin = midpoint;
+        effectiveWork     = Math.max(0, scheduledEndMin - midpoint - Math.round(unpaidBreak / 2));
+      } else if (dayOff.type === 'half_day_pm') {
+        // Afternoon off — employee expected to leave at midpoint
+        effectiveEndMin = midpoint;
+        effectiveWork   = Math.max(0, midpoint - scheduledStartMin - Math.round(unpaidBreak / 2));
+      } else if (dayOff.type === 'custom') {
+        const offStart   = timeStrToMinutes(dayOff.startTime) ?? scheduledStartMin;
+        const offEnd     = timeStrToMinutes(dayOff.endTime)   ?? scheduledEndMin;
+        const offMinutes = Math.max(0, offEnd - offStart);
+        effectiveWork    = Math.max(0, scheduledEffective - offMinutes);
+        // If off covers the start of the shift, late measured from offEnd
+        if (offStart <= scheduledStartMin + grace) effectiveStartMin = offEnd;
+        // If off covers the end of the shift, undertime measured to offStart
+        if (offEnd >= scheduledEndMin)             effectiveEndMin   = offStart;
+      }
+    }
 
     let workedMinutes     = 0;
     let lateMinutes       = 0;
@@ -138,41 +254,52 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
     let overtimeMinutes   = 0;
     let nightDiffMinutes  = 0;
 
-    if (inLog) {
-      const scheduledStartMin = timeStrToMinutes(schedule.shiftStart) || 480; // 08:00
-      const scheduledEndMin   = timeStrToMinutes(schedule.shiftEnd)   || 1020; // 17:00
-      const grace             = schedule.gracePeriodMinutes || 5;
-      const rounding          = schedule.roundingRuleMinutes || 0;
-
+    if (inLog && !isMissingOut) {
       const actualInMin  = toManilaMinutes(inLog.timestamp);
-      const actualOutMin = outLog ? toManilaMinutes(outLog.timestamp) : scheduledEndMin;
+      const actualOutMin = toManilaMinutes(outLog.timestamp);
 
-      // Late
-      let late = Math.max(0, actualInMin - (scheduledStartMin + grace));
+      // Late (measured against effective start for the day)
+      let late = Math.max(0, actualInMin - (effectiveStartMin + grace));
       if (rounding > 0 && late > 0) {
         late = Math.ceil(late / rounding) * rounding;
       }
       lateMinutes = late;
 
-      // Undertime (only when there is an actual OUT)
-      undertimeMinutes = outLog ? Math.max(0, scheduledEndMin - actualOutMin) : 0;
+      // Undertime (measured against effective end for the day)
+      undertimeMinutes = outLog ? Math.max(0, effectiveEndMin - actualOutMin) : 0;
 
       // Worked (gross out-in minus unpaid break)
       let gross = actualOutMin - actualInMin;
       if (gross < 0) gross += 1440; // midnight crossover
-      const unpaidBreak = schedule.isPaidBreak ? 0 : (schedule.breakDurationMinutes || 0);
       workedMinutes = Math.max(0, gross - unpaidBreak);
 
-      // Scheduled effective work minutes
-      let scheduledWork = scheduledEndMin - scheduledStartMin;
-      if (scheduledWork < 0) scheduledWork += 1440;
-      const scheduledEffective = Math.max(0, scheduledWork - unpaidBreak);
-
-      // Overtime
-      overtimeMinutes = Math.max(0, workedMinutes - scheduledEffective);
+      // Overtime (against effective worked hours for the day)
+      overtimeMinutes = Math.max(0, workedMinutes - effectiveWork);
 
       // Night diff
       nightDiffMinutes = calcNightDiffMinutes(actualInMin, actualOutMin, ndStart, ndEnd);
+
+      // Partial day-offs: suppress late/undertime/OT — basic pay uses payFraction instead
+      if (dayOff && !isFullDayOff) {
+        lateMinutes      = 0;
+        undertimeMinutes = 0;
+        overtimeMinutes  = 0;
+      }
+    }
+
+    // Pay fraction: paid leave = full pay; partial day-offs = proportional; full unpaid day-off = excluded from payableDays
+    let payFraction = 1.0;
+    if (!isPaidLeave && dayOff && !isFullDayOff) {
+      if (dayOff.type === 'half_day_am' || dayOff.type === 'half_day_pm') {
+        payFraction = 0.5;
+      } else if (dayOff.type === 'custom') {
+        const offStart = timeStrToMinutes(dayOff.startTime) ?? scheduledStartMin;
+        const offEnd   = timeStrToMinutes(dayOff.endTime)   ?? scheduledEndMin;
+        const offMins  = Math.max(0, offEnd - offStart);
+        payFraction = scheduledEffective > 0
+          ? Math.max(0, Math.min(1, (scheduledEffective - offMins) / scheduledEffective))
+          : 0;
+      }
     }
 
     results.push({
@@ -182,12 +309,15 @@ async function computeEmployeeTime(employeeId, cutoffStart, cutoffEnd, tenantSet
       holidayType,
       isAbsent,
       isMissingOut,
+      isPaidLeave,
       workedMinutes,
       lateMinutes,
       undertimeMinutes,
       overtimeMinutes,
       nightDiffMinutes,
-      logCount: dayLogs.length
+      payFraction,
+      logCount: dayLogs.length,
+      dayOff:   dayOff ? { type: dayOff.type, reason: dayOff.reason, startTime: dayOff.startTime, endTime: dayOff.endTime, isPaid: dayOff.isPaid, source: dayOff.source } : null,
     });
   }
 

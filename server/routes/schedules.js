@@ -1,15 +1,15 @@
 const express  = require('express');
 const router   = express.Router();
-const Schedule = require('../models/Schedule');
 const { authenticate, authorize } = require('../middleware/auth');
+const { getScheduleRepository } = require('../repositories/schedule');
 
 router.use(authenticate);
 
 // GET /api/schedules
 router.get('/', async (req, res) => {
   try {
-    const schedules = await Schedule.find({ tenantId: req.user.tenantId, isActive: true })
-      .sort('name').lean();
+    const repo = getScheduleRepository();
+    const schedules = await repo.listSchedules({ user: req.user });
     return res.json({ data: schedules });
   } catch (err) {
     return res.status(500).json({ error: err.message });
@@ -19,8 +19,9 @@ router.get('/', async (req, res) => {
 // POST /api/schedules
 router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    const schedule = await new Schedule({ ...req.body, tenantId: req.user.tenantId }).save();
-    return res.status(201).json({ data: schedule.toObject() });
+    const repo = getScheduleRepository();
+    const schedule = await repo.createSchedule({ user: req.user, payload: req.body });
+    return res.status(201).json({ data: schedule });
   } catch (err) {
     return res.status(400).json({ error: err.message });
   }
@@ -29,11 +30,8 @@ router.post('/', authorize('super_admin', 'client_admin', 'hr_payroll'), async (
 // PATCH /api/schedules/:id
 router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    const schedule = await Schedule.findOneAndUpdate(
-      { _id: req.params.id, tenantId: req.user.tenantId },
-      { $set: req.body },
-      { new: true, runValidators: true }
-    ).lean();
+    const repo = getScheduleRepository();
+    const schedule = await repo.updateSchedule({ user: req.user, id: req.params.id, patch: req.body });
     if (!schedule) return res.status(404).json({ error: 'Not found' });
     return res.json({ data: schedule });
   } catch (err) {
@@ -44,10 +42,8 @@ router.patch('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), asy
 // DELETE /api/schedules/:id
 router.delete('/:id', authorize('super_admin', 'client_admin', 'hr_payroll'), async (req, res) => {
   try {
-    await Schedule.findOneAndUpdate(
-      { _id: req.params.id, tenantId: req.user.tenantId },
-      { isActive: false }
-    );
+    const repo = getScheduleRepository();
+    await repo.softDeleteSchedule({ user: req.user, id: req.params.id });
     return res.json({ success: true });
   } catch (err) {
     return res.status(500).json({ error: err.message });

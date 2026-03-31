@@ -23,14 +23,17 @@ export const WebSocketProvider = ({ children }) => {
   const [lastMessage, setLastMessage] = useState(null)
   const [syncStatus, setSyncStatus] = useState({ online: false, pending_sync_count: 0 })
   const [systemStatus, setSystemStatus] = useState({})
+  const [wsAvailable, setWsAvailable] = useState(true)
 
   const wsRef = useRef(null)
   const reconnectTimeoutRef = useRef(null)
   const reconnectDelay = useRef(1000)
   const messageHandlersRef = useRef({})
+  const loggedUnavailableRef = useRef(false)
 
   const connect = useCallback(() => {
     if (!user) return
+    if (!WS_CONFIG.URL) return
 
     try {
       const ws = new WebSocket(WS_CONFIG.URL)
@@ -38,6 +41,8 @@ export const WebSocketProvider = ({ children }) => {
       ws.onopen = () => {
         console.log('WebSocket connected')
         setIsConnected(true)
+        setWsAvailable(true)
+        loggedUnavailableRef.current = false
         reconnectDelay.current = 1000
 
         // Identify client
@@ -81,11 +86,17 @@ export const WebSocketProvider = ({ children }) => {
       }
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error)
+        if (!loggedUnavailableRef.current) {
+          console.warn('WebSocket unavailable; continuing without real-time updates.')
+          loggedUnavailableRef.current = true
+        }
+        setWsAvailable(false)
       }
 
       ws.onclose = () => {
-        console.log('WebSocket disconnected')
+        if (isConnected) {
+          console.log('WebSocket disconnected')
+        }
         setIsConnected(false)
         wsRef.current = null
 
@@ -101,7 +112,7 @@ export const WebSocketProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to connect WebSocket:', err)
     }
-  }, [user, isAdmin])
+  }, [user, isAdmin, isConnected])
 
   useEffect(() => {
     if (user) {
@@ -145,6 +156,7 @@ export const WebSocketProvider = ({ children }) => {
 
   const value = {
     isConnected,
+    wsAvailable,
     lastMessage,
     syncStatus,
     systemStatus,

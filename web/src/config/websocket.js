@@ -2,8 +2,17 @@
  * WebSocket Configuration
  */
 
+function getWsUrl() {
+  if (import.meta.env.VITE_WS_URL !== undefined) {
+    return import.meta.env.VITE_WS_URL || null; // empty string = disable WS
+  }
+  // Auto-detect from current origin (works for both dev proxy and production)
+  const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  return `${proto}://${window.location.host}/ws`;
+}
+
 export const WS_CONFIG = {
-  URL: import.meta.env.VITE_WS_URL || 'ws://localhost:8080',
+  URL: getWsUrl(),
   RECONNECT_INTERVAL: 5000,
   MAX_RECONNECT_DELAY: 30000,
   HEARTBEAT_INTERVAL: 30000
