@@ -156,7 +156,7 @@ if ($isUpdate) {
     Write-Host "  Download complete." -ForegroundColor Green
 }
 
-# -- 5. Configuration (always — allows switching company on update) -----------
+# -- 5. Configuration (always - allows switching company on update) -----------
 Write-Host ""
 Write-Host "Configuration" -ForegroundColor Yellow
 Write-Host ""
