@@ -619,7 +619,22 @@ export default function Kiosk() {
             <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-signal-success animate-pulse' : 'bg-signal-warning'}`} />
             <span className="text-xs text-navy-300">{statusLabels[phase] || phase}</span>
           </div>
-          <span className="text-2xs text-navy-600 font-mono select-none">v{__APP_VERSION__}</span>
+          <span className="text-2xs text-navy-400 font-mono select-none">{__APP_VERSION__}</span>
+          {window.location.hostname === 'localhost' && (
+            <button
+              onClick={async () => {
+                try { await fetch('/api/kiosk/sync', { method: 'POST' }) } catch (_) {}
+                setReloadKey(k => k + 1)
+              }}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-2xs font-medium bg-navy-700 hover:bg-navy-600 text-navy-300 border border-navy-500 rounded-full transition-colors"
+              title="Pull latest employees from central server"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Sync
+            </button>
+          )}
           <ThemeToggle />
         </div>
         <Clock />

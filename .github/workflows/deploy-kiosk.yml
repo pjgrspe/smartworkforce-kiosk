@@ -1,0 +1,55 @@
+name: Deploy Kiosk Build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/src/**'
+      - 'web/package.json'
+      - 'web/vite.config.js'
+      - 'kiosk-service/src/**'
+      - 'kiosk-service/routes/**'
+      - 'kiosk-service/package.json'
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Apollo (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Fetch kiosk-service tags (for version indicator)
+        run: git fetch --tags
+        working-directory: kiosk-service
+
+      - name: Build kiosk
+        run: npm run build:kiosk
+        working-directory: web
+
+      - name: Push build to kiosk-service repo
+        working-directory: kiosk-service
+        env:
+          KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin https://x-access-token:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git
+          git add public/
+          git diff --cached --quiet && echo "No changes to deploy" && exit 0
+          git commit -m "chore: kiosk build from Apollo@$(cd .. && git rev-parse --short HEAD)"
+          git push origin main
