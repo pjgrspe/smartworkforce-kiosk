@@ -10,6 +10,7 @@ on:
       - 'kiosk-service/src/**'
       - 'kiosk-service/routes/**'
       - 'kiosk-service/package.json'
+  workflow_dispatch: # allow manual trigger from GitHub UI
 
 jobs:
   # ── Job 1: Build web and deploy to VPS ──────────────────────────────────────
