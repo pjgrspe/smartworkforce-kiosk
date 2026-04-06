@@ -200,7 +200,7 @@ export const getHolidays   = (params = {}) => {
   return request('GET', `/holidays${qs ? '?' + qs : ''}`)
 }
 export const createHoliday = (body)      => request('POST',   '/holidays', body)
-export const bulkHolidays  = (holidays)  => request('POST',   '/holidays/bulk', { holidays })
+export const bulkHolidays  = (holidays, branchId) => request('POST', '/holidays/bulk', { holidays, branchId: branchId || null })
 export const deleteHoliday = (id)        => request('DELETE', `/holidays/${id}`)
 
 // ── Corrections ───────────────────────────────────────────────────

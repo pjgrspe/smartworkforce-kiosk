@@ -232,6 +232,11 @@ export default function Kiosk() {
         if (msg.type === 'SYNC_STATUS' || msg.type === 'PONG') {
           setSyncStatus({ online: msg.online, pending: msg.pending ?? 0 })
         }
+        if (msg.type === 'CACHE_REFRESHED') {
+          // New employee data (or updated face encodings) has been pulled from central.
+          // Reload the face matcher so newly enrolled employees are detected immediately.
+          setReloadKey(k => k + 1)
+        }
       } catch (_) {}
     }
     ws.onclose = () => setSyncStatus(s => s ? { ...s, online: false } : { online: false, pending: 0 })

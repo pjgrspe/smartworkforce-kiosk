@@ -64,10 +64,12 @@ function resolveDayOvertimeMultiplier(day, multipliers) {
     multiplier = Math.max(multiplier, multipliers.restDay || 1.30);
   }
   if (day?.isHoliday && day?.holidayType === 'special_non_working') {
-    multiplier = Math.max(multiplier, multipliers.specialHoliday || 1.30);
+    const base = day.holidayPayMultiplier != null ? day.holidayPayMultiplier : (multipliers.specialHoliday || 1.30);
+    multiplier = Math.max(multiplier, base);
   }
   if (day?.isHoliday && day?.holidayType === 'regular') {
-    multiplier = Math.max(multiplier, multipliers.regularHoliday || 2.00);
+    const base = day.holidayPayMultiplier != null ? day.holidayPayMultiplier : (multipliers.regularHoliday || 2.00);
+    multiplier = Math.max(multiplier, base);
   }
 
   return multiplier;
@@ -199,8 +201,7 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
   const specialHolMult  = otM.specialHoliday || 1.30;
   const regularHolMult  = otM.regularHoliday || 2.00;
   const nightDiffRate   = otM.nightDiff       || 0.10;
-  const regularHolidayDays = days.filter((day) => day.isHoliday && day.holidayType === 'regular' && !day.isAbsent && !day.isMissingOut).length;
-  const specialHolidayDays = days.filter((day) => day.isHoliday && day.holidayType === 'special_non_working' && !day.isAbsent && !day.isMissingOut).length;
+  const workedHolidayDays = days.filter((day) => day.isHoliday && !day.isAbsent && !day.isMissingOut);
 
   // Overtime pay (regular hours)
   const overtimePay = overtimeEligible
@@ -216,9 +217,13 @@ async function computePayslip(timeSummary, tenantSettings = {}) {
     : 0;
 
   // Holiday pay premium (extra on top of basic already counted)
+  // Uses per-holiday pay_multiplier when set; falls back to tenant default rates.
   const holidayPay = round2(
-    regularHolidayDays * workDayRate * (regularHolMult  - 1) +
-    specialHolidayDays * workDayRate * (specialHolMult  - 1)
+    workedHolidayDays.reduce((sum, day) => {
+      const defaultMult = day.holidayType === 'regular' ? regularHolMult : specialHolMult;
+      const mult = day.holidayPayMultiplier != null ? day.holidayPayMultiplier : defaultMult;
+      return sum + workDayRate * (mult - 1);
+    }, 0)
   );
 
   // Night differential pay
