@@ -22,7 +22,7 @@ import ThemeToggle from '../components/ui/ThemeToggle'
 const CDN_WEIGHTS     = import.meta.env.VITE_MODEL_URL || 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights'
 const CONFIRM_FRAMES  = 8         // consecutive matching frames required before confirming (~800ms)
 const MATCH_THRESHOLD = 0.50      // max Euclidean distance for a valid match
-const MARGIN_MIN      = 0.06      // min gap between best and 2nd-best match (ambiguity guard)
+const MARGIN_MIN      = 0.12      // min gap between best and 2nd-best match (ambiguity guard)
 const MIN_FACE_SIZE   = 0.15      // face height must be ≥ 15% of video height (too far = unreliable)
 const CONF_BUF_SIZE   = 5         // frames to average confidence over for stability
 const DETECT_INTERVAL = 80        // ms between detection frames (~12 fps)
@@ -162,6 +162,7 @@ export default function Kiosk() {
   const [punchError, setPunchError] = useState('')
   const [recent,    setRecent]    = useState([])
   const [employees, setEmployees] = useState([])
+  const [runtimeVersion, setRuntimeVersion] = useState(null)
 
   const videoRef      = useRef(null)
   const canvasRef     = useRef(null)
@@ -175,9 +176,11 @@ export default function Kiosk() {
   const allDescsRef   = useRef({})   // employeeId → Float32Array[] (all enrollment descriptors, for margin check)
   const confBufRef    = useRef([])   // rolling confidence buffer for averaging
 
-  const [cameras,    setCameras]    = useState([])
-  const [selCam,     setSelCam]     = useState('')
-  const [syncStatus, setSyncStatus] = useState(null) // null = unknown, { online, pending }
+  const [cameras,         setCameras]         = useState([])
+  const [selCam,          setSelCam]          = useState('')
+  const [syncStatus,      setSyncStatus]      = useState(null) // null = unknown, { online, pending }
+  const [ambigCandidates, setAmbigCandidates] = useState([])   // [{id, name, dist}] when face is ambiguous
+  const ambigBufRef = useRef(0)
 
   const setPhaseSync = (p) => { phaseRef.current = p; setPhase(p) }
 
@@ -203,6 +206,7 @@ export default function Kiosk() {
           localStorage.setItem('kiosk_tenant', data.tenantCode)
           setTenantCode(data.tenantCode)
         }
+        if (data?.version) setRuntimeVersion(data.version)
       })
       .catch(() => {})
   }, [])
@@ -406,6 +410,7 @@ export default function Kiosk() {
 
     const p = phaseRef.current
     if (['punching', 'success', 'fail'].includes(p)) { schedule(); return }
+    if (p === 'ambiguous') return
 
     const faceapi = await getFaceApi()
     const displaySize = { width: video.videoWidth, height: video.videoHeight }
@@ -431,9 +436,10 @@ export default function Kiosk() {
       const bestMatch = faceBigEnough ? matcher.findBestMatch(detection.descriptor) : null
       const isKnown   = faceBigEnough && bestMatch?.label !== 'unknown'
 
-      // ── Margin check: reject if 2nd-closest employee is too similar ───────
+      // ── Margin check: if 2nd-closest is too similar, trigger disambiguation ─
       // Uses all per-employee descriptors for the most accurate distance comparison.
       let marginOk = true
+      let topCandidates = []
       if (isKnown) {
         const allDescs = allDescsRef.current
         const empDists = Object.entries(allDescs).map(([id, descs]) => ({
@@ -442,6 +448,7 @@ export default function Kiosk() {
         })).sort((a, b) => a.dist - b.dist)
         if (empDists.length >= 2 && (empDists[1].dist - empDists[0].dist) < MARGIN_MIN) {
           marginOk = false
+          topCandidates = empDists.slice(0, 2)
         }
       }
 
@@ -462,6 +469,7 @@ export default function Kiosk() {
       }
 
       if (isKnown && marginOk) {
+        ambigBufRef.current = 0
         const empId     = bestMatch.label
         const framConf  = 1 - bestMatch.distance
 
@@ -483,7 +491,23 @@ export default function Kiosk() {
           setConfirmed({ id: empId, name, confidence: avgConfidence })
           setPhaseSync('confirmed')
         }
+      } else if (isKnown && !marginOk && faceBigEnough) {
+        // Ambiguous match — face recognized but too similar to runner-up.
+        // Accumulate stable frames then ask the employee to confirm their name.
+        matchBufRef.current = { id: null, count: 0 }
+        confBufRef.current  = []
+        ambigBufRef.current++
+        if (ambigBufRef.current >= CONFIRM_FRAMES && p === 'running') {
+          const candidates = topCandidates.map(({ id, dist }) => {
+            const emp = employeesRef.current.find(e => e._id === id)
+            return { id, name: emp ? `${emp.firstName} ${emp.lastName}` : id, dist }
+          })
+          setAmbigCandidates(candidates)
+          ambigBufRef.current = 0
+          setPhaseSync('ambiguous')
+        }
       } else {
+        ambigBufRef.current = 0
         if (matchBufRef.current.id !== null) {
           matchBufRef.current = { id: null, count: 0 }
           confBufRef.current  = []
@@ -503,7 +527,9 @@ export default function Kiosk() {
           smoothBoxRef.current = null
           matchBufRef.current  = { id: null, count: 0 }
           confBufRef.current   = []
+          ambigBufRef.current  = 0
           if (p === 'confirmed') { setConfirmed(null); setPhaseSync('running') }
+          if (p === 'ambiguous') { setAmbigCandidates([]); setPhaseSync('running') }
         }
       }
     }
@@ -544,7 +570,7 @@ export default function Kiosk() {
     return () => { clearTimeout(rafRef.current) }
   }, [phase, detectLoop])
 
-  // Auto-reset confirmed match after idle
+  // Auto-reset confirmed or ambiguous state after idle
   useEffect(() => {
     clearTimeout(resetTimerRef.current)
     if (phase === 'confirmed') {
@@ -552,8 +578,21 @@ export default function Kiosk() {
         setConfirmed(null); matchBufRef.current = { id: null, count: 0 }; setPhaseSync('running')
       }, AUTO_RESET_MS)
     }
+    if (phase === 'ambiguous') {
+      resetTimerRef.current = setTimeout(() => {
+        setAmbigCandidates([]); ambigBufRef.current = 0; setPhaseSync('running')
+      }, AUTO_RESET_MS)
+    }
     return () => clearTimeout(resetTimerRef.current)
   }, [phase, confirmed])
+
+  const selectAmbigCandidate = (candidate) => {
+    clearTimeout(resetTimerRef.current)
+    setConfirmed({ id: candidate.id, name: candidate.name, confidence: 1 - candidate.dist })
+    setAmbigCandidates([])
+    ambigBufRef.current = 0
+    setPhaseSync('confirmed')
+  }
 
   // ── Punch handler ──────────────────────────────────────────────────────────
   const doPunch = async (type) => {
@@ -598,6 +637,7 @@ export default function Kiosk() {
   const statusLabels = {
     running:   'Scanning...',
     confirmed: 'Face matched',
+    ambiguous: 'Confirm identity',
     punching:  'Recording...',
     success:   'Logged!',
     fail:      'Error',
@@ -619,7 +659,7 @@ export default function Kiosk() {
             <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-signal-success animate-pulse' : 'bg-signal-warning'}`} />
             <span className="text-xs text-navy-300">{statusLabels[phase] || phase}</span>
           </div>
-          <span className="text-2xs text-navy-400 font-mono select-none">{__APP_VERSION__}</span>
+          <span className="text-2xs text-navy-400 font-mono select-none">{runtimeVersion || __APP_VERSION__}</span>
           {window.location.hostname === 'localhost' && (
             <button
               onClick={async () => {
@@ -709,6 +749,41 @@ export default function Kiosk() {
             </div>
           )}
 
+          {/* Disambiguation overlay — shown when two employees look too similar to auto-confirm */}
+          <AnimatePresence>
+            {phase === 'ambiguous' && (
+              <motion.div
+                key="disambiguation"
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="absolute inset-0 flex items-center justify-center bg-navy-950/95 z-10 rounded-2xl"
+              >
+                <div className="text-center px-8 w-full max-w-xs">
+                  <p className="text-2xl font-bold mb-1">Who are you?</p>
+                  <p className="text-navy-400 text-sm mb-6">Tap your name to continue</p>
+                  <div className="space-y-3">
+                    {ambigCandidates.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => selectAmbigCandidate(c)}
+                        className="w-full bg-navy-700 hover:bg-navy-600 border border-navy-500 hover:border-accent py-4 rounded-xl font-semibold text-lg transition active:scale-95"
+                      >
+                        {c.name}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => { setAmbigCandidates([]); ambigBufRef.current = 0; setPhaseSync('running') }}
+                    className="mt-5 text-navy-500 text-sm hover:text-navy-300 transition"
+                  >
+                    That's not me
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Success overlay */}
           <AnimatePresence>
             {phase === 'success' && confirmed && (
@@ -792,6 +867,9 @@ export default function Kiosk() {
             </div>
             {phase === 'running' && (
               <p className="text-center text-navy-400 text-xs mt-3">Waiting for face recognition...</p>
+            )}
+            {phase === 'ambiguous' && (
+              <p className="text-center text-signal-warning text-xs mt-3 animate-pulse">Confirm your identity on screen</p>
             )}
             {phase === 'confirmed' && (
               <p className="text-center text-accent-400 text-xs mt-3 animate-pulse">Tap a button to record</p>
