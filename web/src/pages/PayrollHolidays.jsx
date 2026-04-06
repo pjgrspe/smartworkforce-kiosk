@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react'
-import { getHolidays, createHoliday, deleteHoliday, bulkHolidays, getBranches } from '../config/api'
+import { getHolidays, createHoliday, deleteHoliday, bulkHolidays, getBranches, getTenantSettings } from '../config/api'
 
 // ── PH holiday template (names + types only, no dates) ────────────
 const PH_HOLIDAY_TEMPLATE = [
@@ -47,9 +47,11 @@ export default function PayrollHolidays() {
   const [tmplBranch,   setTmplBranch]   = useState('none')  // branch for the bulk template
   const [bulkSaving,   setBulkSaving]   = useState(false)
   const [bulkMsg,      setBulkMsg]      = useState('')
+  const [otMultipliers, setOtMultipliers] = useState({})
 
   useEffect(() => {
     getBranches().then(res => setBranches(res?.data || [])).catch(() => {})
+    getTenantSettings().then(res => setOtMultipliers(res?.data?.settings?.overtimeMultipliers || {})).catch(() => {})
   }, [])
 
   const load = useCallback(async () => {
@@ -279,8 +281,16 @@ export default function PayrollHolidays() {
                           {h.type === 'regular' ? 'Regular' : 'Special'}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-2xs text-navy-300 font-mono">
-                        {h.payMultiplier != null ? `${h.payMultiplier}×` : <span className="text-navy-500">default</span>}
+                      <td className="px-4 py-2.5 text-2xs font-mono">
+                        {h.payMultiplier != null
+                          ? <span className="text-navy-100">{Number(h.payMultiplier).toFixed(2)}×</span>
+                          : (() => {
+                              const effective = h.type === 'regular'
+                                ? (otMultipliers.regularHoliday ?? 2.00)
+                                : (otMultipliers.specialHoliday ?? 1.30)
+                              return <span className="text-navy-400">{Number(effective).toFixed(2)}× <span className="text-navy-600">(default)</span></span>
+                            })()
+                        }
                       </td>
                       <td className="px-4 py-2.5 text-2xs text-navy-400">
                         {h.branchId ? (branch?.name || '—') : 'All branches'}
