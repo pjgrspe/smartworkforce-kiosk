@@ -8,6 +8,10 @@ try {
   version = execSync('git describe --tags --abbrev=0', { encoding: 'utf8', cwd: '../kiosk-service' }).trim()
 } catch (_) {}
 
+// Write VERSION file to kiosk-service so the server can read it at runtime
+import { writeFileSync } from 'fs'
+try { writeFileSync('../kiosk-service/VERSION', version, 'utf8') } catch (_) {}
+
 // https://vitejs.dev/config/
 export default defineConfig({
   define: {
