@@ -1,11 +1,12 @@
-require('dotenv').config();
+require('dotenv').config({ path: require('path').join(__dirname, '.env') });
 
 const express = require('express');
 const cors    = require('cors');
 const http    = require('http');
 const path    = require('path');
 const { WebSocketServer } = require('ws');
-const sync  = require('./sync');
+const sync    = require('./sync');
+const updater = require('./updater');
 
 const PORT    = Number(process.env.PORT)    || 4000;
 const WS_PORT = Number(process.env.WS_PORT) || 4001;
@@ -87,3 +88,4 @@ server.listen(PORT, '127.0.0.1', () => {
 });
 
 sync.start();
+updater.start();
