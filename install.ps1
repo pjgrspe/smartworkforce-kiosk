@@ -105,13 +105,14 @@ if ($isUpdate) {
     $ErrorActionPreference = "Stop"
     Write-Host "  Installed version : $currentTag" -ForegroundColor White
 
-    # Fetch all tags and check for updates
+    # Fetch all tags — always use the latest git tag as the source of truth.
+    # The GitHub API only returns published Releases, but CI pushes plain tags,
+    # so the git tag list is always up to date.
     git fetch --tags --quiet
-    if (-not $latestTag) {
-        $ErrorActionPreference = "Continue"
-        $latestTag = git tag --sort=-version:refname 2>$null | Select-Object -First 1
-        $ErrorActionPreference = "Stop"
-    }
+    $ErrorActionPreference = "Continue"
+    $latestTagFromGit = git tag --sort=-version:refname 2>$null | Select-Object -First 1
+    $ErrorActionPreference = "Stop"
+    if ($latestTagFromGit) { $latestTag = $latestTagFromGit }
 
     if (-not $latestTag) {
         throw "No release tags found in repository. Please tag a release on GitHub first."
