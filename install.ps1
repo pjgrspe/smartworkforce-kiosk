@@ -120,7 +120,7 @@ if ($isUpdate) {
     Write-Host "  Latest version    : $latestTag" -ForegroundColor White
 
     if ($currentTag -eq $latestTag) {
-        Write-Host "  Already on $latestTag — pulling latest build..." -ForegroundColor Green
+        Write-Host "  Already on $latestTag - pulling latest build..." -ForegroundColor Green
         git checkout main
         git pull origin main
         git checkout $latestTag
