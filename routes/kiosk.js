@@ -12,7 +12,7 @@ const sync = require('../sync');
 
 const router = express.Router();
 
-// Read version once at startup — avoids spawning a process on every /config request
+// Read once at startup — avoids spawning a process on every /config request
 const _versionResult = spawnSync('git describe --tags --exact-match HEAD', {
   shell: true, encoding: 'utf8', cwd: __dirname, windowsHide: true,
 });
@@ -55,10 +55,7 @@ router.post('/sync', async (req, res) => {
 router.get('/config', (req, res) => {
   const tenantCode = (process.env.TENANT_CODE || '').toUpperCase().trim();
   if (!tenantCode) return res.status(404).json({ error: 'TENANT_CODE not set in .env' });
-
-  const version = _kioskVersion;
-
-  return res.json({ tenantCode, version });
+  return res.json({ tenantCode, version: _kioskVersion });
 });
 
 // GET /api/kiosk/employees?tenant=CODE
