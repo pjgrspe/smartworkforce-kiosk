@@ -441,7 +441,11 @@ export default function Kiosk() {
           id,
           dist: Math.min(...descs.map(d => faceapi.euclideanDistance(detection.descriptor, d))),
         })).sort((a, b) => a.dist - b.dist)
-        if (empDists.length >= 2 && (empDists[1].dist - empDists[0].dist) < MARGIN_MIN) {
+        // Only ambiguous if the runner-up is ALSO within the recognition threshold.
+        // If the 2nd closest is above MATCH_THRESHOLD they're not a real candidate.
+        if (empDists.length >= 2 &&
+            empDists[1].dist < MATCH_THRESHOLD &&
+            (empDists[1].dist - empDists[0].dist) < MARGIN_MIN) {
           marginOk = false
           topCandidates = empDists.slice(0, 2)
         }
