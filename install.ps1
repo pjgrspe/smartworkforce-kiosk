@@ -120,24 +120,24 @@ if ($isUpdate) {
     Write-Host "  Latest version    : $latestTag" -ForegroundColor White
 
     if ($currentTag -eq $latestTag) {
+        Write-Host "  Already on $latestTag — pulling latest build..." -ForegroundColor Green
+        git checkout main
+        git pull origin main
+        git checkout $latestTag
+    } else {
         Write-Host ""
-        Write-Host "  Already up to date. Nothing to do." -ForegroundColor Green
-        $success = $true
-        exit
+        Write-Host "Updating $currentTag -> $latestTag..." -ForegroundColor Yellow
+        if ($releaseNotes) {
+            Write-Host ""
+            Write-Host "  Release notes:" -ForegroundColor DarkGray
+            $releaseNotes -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+            Write-Host ""
+        }
+        git checkout main
+        git pull origin main
+        git checkout $latestTag
+        Write-Host "  Code updated to $latestTag." -ForegroundColor Green
     }
-
-    Write-Host ""
-    Write-Host "Updating $currentTag -> $latestTag..." -ForegroundColor Yellow
-    if ($releaseNotes) {
-        Write-Host ""
-        Write-Host "  Release notes:" -ForegroundColor DarkGray
-        $releaseNotes -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
-        Write-Host ""
-    }
-    git checkout main
-    git pull origin main
-    git checkout $latestTag
-    Write-Host "  Code updated to $latestTag." -ForegroundColor Green
 
 } else {
     if (-not $latestTag) {
