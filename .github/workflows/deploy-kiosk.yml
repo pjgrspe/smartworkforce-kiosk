@@ -45,6 +45,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
           source: "web/dist"
           target: "/home/xdgamboa/apollo/web/"
           strip_components: 1
