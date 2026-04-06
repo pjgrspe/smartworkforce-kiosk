@@ -3,10 +3,15 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 import { execSync } from 'child_process'
 
-let version = 'dev'
-try {
-  version = execSync('git describe --tags --abbrev=0', { encoding: 'utf8', cwd: '../kiosk-service' }).trim()
-} catch (_) {}
+// RELEASE_TAG is set by CI when triggered by a tag push — use it directly so
+// the build always has the correct version baked in. Falls back to git describe
+// for local builds.
+let version = process.env.RELEASE_TAG || 'dev'
+if (!process.env.RELEASE_TAG) {
+  try {
+    version = execSync('git describe --tags --abbrev=0', { encoding: 'utf8', cwd: '../kiosk-service' }).trim()
+  } catch (_) {}
+}
 
 // Write VERSION file to kiosk-service so the server can read it at runtime
 import { writeFileSync } from 'fs'

@@ -2,15 +2,9 @@ name: Deploy SmartWorkforce
 
 on:
   push:
-    branches: [main]
-    paths:
-      - 'web/src/**'
-      - 'web/package.json'
-      - 'web/vite.config.js'
-      - 'kiosk-service/src/**'
-      - 'kiosk-service/routes/**'
-      - 'kiosk-service/package.json'
-  workflow_dispatch: # allow manual trigger from GitHub UI
+    tags:
+      - 'v*'       # trigger by creating a version tag, e.g. v1.3.5
+  workflow_dispatch: # allow manual trigger from GitHub Actions UI
 
 jobs:
   # ── Job 1: Build web and deploy to VPS ──────────────────────────────────────
@@ -37,6 +31,8 @@ jobs:
       - name: Build web
         run: npm run build
         working-directory: web
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
       - name: Deploy dist to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -72,23 +68,35 @@ jobs:
         run: npm install
         working-directory: web
 
-      - name: Fetch kiosk-service tags (for version indicator)
+      - name: Fetch kiosk-service tags
         run: git fetch --tags
         working-directory: kiosk-service
 
       - name: Build kiosk
         run: npm run build:kiosk
         working-directory: web
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
-      - name: Push build to kiosk-service repo
+      - name: Push build (and tag) to kiosk-service repo
         working-directory: kiosk-service
         env:
           KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config --global credential.helper ""
           git add public/
-          git diff --cached --quiet && echo "No changes to deploy" && exit 0
-          git commit -m "chore: kiosk build from Apollo@$(cd .. && git rev-parse --short HEAD)"
-          git push https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git HEAD:main
+          if git diff --cached --quiet; then
+            echo "No build changes to commit."
+          else
+            git commit -m "chore: kiosk build ${RELEASE_TAG:-from Apollo@$(cd .. && git rev-parse --short HEAD)}"
+          fi
+          # Tag the current HEAD with the release tag (if triggered by a tag push)
+          if [ -n "${RELEASE_TAG}" ]; then
+            git tag "${RELEASE_TAG}" HEAD
+            git push https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git HEAD:main "${RELEASE_TAG}"
+          else
+            git push https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git HEAD:main
+          fi
