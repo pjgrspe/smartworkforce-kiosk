@@ -84,19 +84,22 @@ jobs:
           KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
+          REMOTE_URL="https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config --global credential.helper ""
+          # Sync with remote main so our commit is a fast-forward
+          git fetch "$REMOTE_URL" main
+          git checkout -B main FETCH_HEAD
           git add public/
           if git diff --cached --quiet; then
             echo "No build changes to commit."
           else
             git commit -m "chore: kiosk build ${RELEASE_TAG:-from Apollo@$(cd .. && git rev-parse --short HEAD)}"
           fi
-          # Tag the current HEAD with the release tag (if triggered by a tag push)
+          # Push main, then tag if this is a release
+          git push "$REMOTE_URL" HEAD:main
           if [ -n "${RELEASE_TAG}" ]; then
             git tag "${RELEASE_TAG}" HEAD
-            git push https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git HEAD:main "${RELEASE_TAG}"
-          else
-            git push https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git HEAD:main
+            git push "$REMOTE_URL" "${RELEASE_TAG}"
           fi
