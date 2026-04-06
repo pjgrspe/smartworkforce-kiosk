@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /c/Users/pgorospe/SideProjects/ABG/Apollo/kiosk-service -type f -name *.js)",
+      "Bash(npm run:*)",
+      "Bash(pscp -P 54833 -i \"C:/Users/pgorospe/.ssh/keys/vps-key-abg.ppk\" -hostkey \"SHA256:pTEdjm6cgkqJRnvy6Tg/0Q+2lhhzFWypRymd8Admx1U\" \"C:/Users/pgorospe/SideProjects/ABG/Apollo/web/dist/index.html\" xdgamboa@51.79.255.147:/home/xdgamboa/apollo/web/dist/)",
+      "Bash(pscp -P 54833 -i \"C:/Users/pgorospe/.ssh/keys/vps-key-abg.ppk\" -hostkey \"SHA256:pTEdjm6cgkqJRnvy6Tg/0Q+2lhhzFWypRymd8Admx1U\" -r \"C:/Users/pgorospe/SideProjects/ABG/Apollo/web/dist/assets\" xdgamboa@51.79.255.147:/home/xdgamboa/apollo/web/dist/)"
+    ]
+  }
+}

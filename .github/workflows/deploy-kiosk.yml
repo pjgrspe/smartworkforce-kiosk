@@ -1,0 +1,109 @@
+name: Deploy SmartWorkforce
+
+on:
+  push:
+    tags:
+      - 'v*'       # trigger by creating a version tag, e.g. v1.3.5
+  workflow_dispatch: # allow manual trigger from GitHub Actions UI
+
+jobs:
+  # ── Job 1: Build web and deploy to VPS ──────────────────────────────────────
+  deploy-web:
+    name: Build & Deploy Web to Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Apollo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install web dependencies
+        run: npm install
+        working-directory: web
+
+      - name: Build web
+        run: npm run build
+        working-directory: web
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+      - name: Deploy dist to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          passphrase: ${{ secrets.VPS_SSH_PASSPHRASE }}
+          source: "web/dist"
+          target: "/home/xdgamboa/apollo/web/"
+          strip_components: 1
+
+  # ── Job 2: Build kiosk and push to kiosk-service repo ───────────────────────
+  deploy-kiosk:
+    name: Build & Deploy Kiosk to Branch PCs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Apollo (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install web dependencies
+        run: npm install
+        working-directory: web
+
+      - name: Sync kiosk-service with remote main
+        working-directory: kiosk-service
+        env:
+          KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global credential.helper ""
+          git fetch "https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git" main
+          git checkout -B main FETCH_HEAD
+
+      - name: Fetch kiosk-service tags
+        run: git fetch --tags
+        working-directory: kiosk-service
+
+      - name: Build kiosk
+        run: npm run build:kiosk
+        working-directory: web
+        env:
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+
+      - name: Commit and push build to kiosk-service repo
+        working-directory: kiosk-service
+        env:
+          KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          REMOTE_URL="https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git"
+          git add public/
+          if git diff --cached --quiet; then
+            echo "No build changes to commit."
+          else
+            git commit -m "chore: kiosk build ${RELEASE_TAG:-from Apollo@$(cd .. && git rev-parse --short HEAD)}"
+          fi
+          git push "$REMOTE_URL" HEAD:main
+          if [ -n "${RELEASE_TAG}" ]; then
+            git tag "${RELEASE_TAG}" HEAD
+            git push "$REMOTE_URL" "${RELEASE_TAG}"
+          fi

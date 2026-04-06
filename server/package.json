@@ -1,0 +1,50 @@
+{
+  "name": "smartworkforce-server",
+  "version": "2.0.0",
+  "description": "SmartWorkforce Central Server",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "node scripts/test.js",
+    "test:sync-smoke": "node scripts/smoke-sync.js",
+    "pilot:capture-status": "node scripts/pilot-status-capture.js",
+    "test:watch": "jest --watch",
+    "test:ci": "node scripts/test.js",
+    "db:migrate:postgres": "node scripts/run-postgres-migration.js",
+    "db:migrate:postgres:core": "node scripts/run-postgres-migration.js 0001_core_postgres.sql",
+    "db:migrate:postgres:sync": "node scripts/run-postgres-migration.js 0002_sync_checkpoints.sql",
+    "db:migrate:postgres:events": "node scripts/run-postgres-migration.js 0003_sync_events.sql",
+    "db:migrate:postgres:sync-failures": "node scripts/run-postgres-migration.js 0004_sync_failure_handling.sql",
+    "db:migrate:postgres:domains": "node scripts/run-postgres-migration.js 0005_domain_tables.sql"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "better-sqlite3": "^12.6.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^8.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.1.1",
+    "pg": "^8.13.3",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0",
+    "ws": "^8.15.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "keywords": [
+    "websocket",
+    "offline-first",
+    "postgresql",
+    "facial-recognition"
+  ],
+  "author": "",
+  "license": "MIT"
+}
