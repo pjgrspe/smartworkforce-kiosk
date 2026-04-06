@@ -4,19 +4,18 @@
  * are flushed to central by the background sync worker.
  */
 
-const express    = require('express');
+const express = require('express');
 const { v4: uuidv4 } = require('uuid');
-const { spawnSync } = require('child_process');
+const fs   = require('fs');
+const path = require('path');
 const db   = require('../db');
 const sync = require('../sync');
 
 const router = express.Router();
 
-// Read once at startup — avoids spawning a process on every /config request
-const _versionResult = spawnSync('git describe --tags --exact-match HEAD', {
-  shell: true, encoding: 'utf8', cwd: __dirname, windowsHide: true,
-});
-const _kioskVersion = _versionResult.status === 0 ? _versionResult.stdout.trim() : null;
+// Version is written to VERSION file by the build process (npm run build:kiosk)
+let _kioskVersion = null;
+try { _kioskVersion = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim() } catch (_) {}
 
 const MIN_CONFIDENCE = 0.5;
 
