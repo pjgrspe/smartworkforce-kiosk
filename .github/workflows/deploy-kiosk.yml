@@ -1,4 +1,4 @@
-name: Deploy Kiosk Build
+name: Deploy SmartWorkforce
 
 on:
   push:
@@ -12,7 +12,47 @@ on:
       - 'kiosk-service/package.json'
 
 jobs:
-  build-and-push:
+  # ── Job 1: Build web and deploy to VPS ──────────────────────────────────────
+  deploy-web:
+    name: Build & Deploy Web to Server
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Apollo
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
+      - name: Build web
+        run: npm run build
+        working-directory: web
+
+      - name: Deploy dist to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: "web/dist"
+          target: "/home/xdgamboa/apollo/web/"
+          strip_components: 1
+
+  # ── Job 2: Build kiosk and push to kiosk-service repo ───────────────────────
+  deploy-kiosk:
+    name: Build & Deploy Kiosk to Branch PCs
     runs-on: ubuntu-latest
 
     steps:
