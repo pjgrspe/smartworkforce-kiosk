@@ -106,8 +106,8 @@ if ($isUpdate) {
     Write-Host "  Installed version : $currentTag" -ForegroundColor White
 
     # Fetch all tags — always use the latest git tag as the source of truth.
-    # The GitHub API only returns published Releases, but CI pushes plain tags,
-    # so the git tag list is always up to date.
+    # The GitHub releases API only returns published Releases; CI pushes plain
+    # tags, so the actual git tag list is always more up to date.
     git fetch --tags --quiet
     $ErrorActionPreference = "Continue"
     $latestTagFromGit = git tag --sort=-version:refname 2>$null | Select-Object -First 1
