@@ -86,7 +86,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin https://x-access-token:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git
+          git remote set-url origin https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git
           git add public/
           git diff --cached --quiet && echo "No changes to deploy" && exit 0
           git commit -m "chore: kiosk build from Apollo@$(cd .. && git rev-parse --short HEAD)"
