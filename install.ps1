@@ -134,6 +134,8 @@ if ($isUpdate) {
         $releaseNotes -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
         Write-Host ""
     }
+    git checkout main
+    git pull origin main
     git checkout $latestTag
     Write-Host "  Code updated to $latestTag." -ForegroundColor Green
 
