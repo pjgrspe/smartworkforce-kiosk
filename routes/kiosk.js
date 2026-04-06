@@ -15,7 +15,7 @@ const router = express.Router();
 
 // Version is written to VERSION file by the build process (npm run build:kiosk)
 let _kioskVersion = null;
-try { _kioskVersion = fs.readFileSync(path.join(__dirname, 'VERSION'), 'utf8').trim() } catch (_) {}
+try { _kioskVersion = fs.readFileSync(path.join(__dirname, '..', 'VERSION'), 'utf8').trim() } catch (_) {}
 
 const MIN_CONFIDENCE = 0.5;
 
