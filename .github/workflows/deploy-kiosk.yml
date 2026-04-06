@@ -68,6 +68,17 @@ jobs:
         run: npm install
         working-directory: web
 
+      - name: Sync kiosk-service with remote main
+        working-directory: kiosk-service
+        env:
+          KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global credential.helper ""
+          git fetch "https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git" main
+          git checkout -B main FETCH_HEAD
+
       - name: Fetch kiosk-service tags
         run: git fetch --tags
         working-directory: kiosk-service
@@ -78,26 +89,19 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
-      - name: Push build (and tag) to kiosk-service repo
+      - name: Commit and push build to kiosk-service repo
         working-directory: kiosk-service
         env:
           KIOSK_DEPLOY_TOKEN: ${{ secrets.KIOSK_DEPLOY_TOKEN }}
           RELEASE_TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
           REMOTE_URL="https://pjgrspe:${KIOSK_DEPLOY_TOKEN}@github.com/pjgrspe/smartworkforce-kiosk.git"
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config --global credential.helper ""
-          # Sync with remote main so our commit is a fast-forward
-          git fetch "$REMOTE_URL" main
-          git checkout -B main FETCH_HEAD
           git add public/
           if git diff --cached --quiet; then
             echo "No build changes to commit."
           else
             git commit -m "chore: kiosk build ${RELEASE_TAG:-from Apollo@$(cd .. && git rev-parse --short HEAD)}"
           fi
-          # Push main, then tag if this is a release
           git push "$REMOTE_URL" HEAD:main
           if [ -n "${RELEASE_TAG}" ]; then
             git tag "${RELEASE_TAG}" HEAD
