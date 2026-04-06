@@ -4,12 +4,19 @@
  * are flushed to central by the background sync worker.
  */
 
-const express = require('express');
+const express    = require('express');
 const { v4: uuidv4 } = require('uuid');
+const { spawnSync } = require('child_process');
 const db   = require('../db');
 const sync = require('../sync');
 
 const router = express.Router();
+
+// Read version once at startup — avoids spawning a process on every /config request
+const _versionResult = spawnSync('git describe --tags --exact-match HEAD', {
+  shell: true, encoding: 'utf8', cwd: __dirname, windowsHide: true,
+});
+const _kioskVersion = _versionResult.status === 0 ? _versionResult.stdout.trim() : null;
 
 const MIN_CONFIDENCE = 0.5;
 
@@ -49,11 +56,7 @@ router.get('/config', (req, res) => {
   const tenantCode = (process.env.TENANT_CODE || '').toUpperCase().trim();
   if (!tenantCode) return res.status(404).json({ error: 'TENANT_CODE not set in .env' });
 
-  const { spawnSync } = require('child_process');
-  const tag = spawnSync('git describe --tags --exact-match HEAD', {
-    shell: true, encoding: 'utf8', cwd: __dirname, windowsHide: true,
-  });
-  const version = tag.status === 0 ? tag.stdout.trim() : null;
+  const version = _kioskVersion;
 
   return res.json({ tenantCode, version });
 });
