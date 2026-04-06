@@ -1,0 +1,58 @@
+/**
+ * Auto-updater for the kiosk-service.
+ * Periodically checks the remote git repo for a new release tag.
+ * If a newer tag is found, checks it out and restarts via PM2.
+ */
+
+const { spawnSync } = require('child_process');
+
+const CHECK_INTERVAL_MS = Number(process.env.UPDATE_CHECK_INTERVAL_MS) || 5 * 60 * 1000;
+
+function run(cmd) {
+  return spawnSync(cmd, {
+    shell: true,
+    encoding: 'utf8',
+    cwd: __dirname,
+    windowsHide: true,   // prevents CMD windows popping up on Windows
+  });
+}
+
+function checkAndUpdate() {
+  try {
+    if (run('git fetch --tags --quiet').status !== 0) return;
+
+    const latestTag = run('git tag --sort=-version:refname').stdout.trim().split('\n')[0];
+    if (!latestTag) return;
+
+    // Compare commit hashes — avoids false positives when on main/detached HEAD
+    const headSha      = run('git rev-parse HEAD').stdout.trim();
+    const latestTagSha = run(`git rev-parse "${latestTag}^{}"`).stdout.trim();
+
+    if (headSha === latestTagSha) {
+      console.log(`[updater] Already on latest release (${latestTag})`);
+      return;
+    }
+
+    console.log(`[updater] New release detected: ${latestTag} — updating...`);
+
+    if (run(`git checkout "${latestTag}"`).status !== 0) {
+      console.error('[updater] git checkout failed');
+      return;
+    }
+
+    console.log(`[updater] Updated to ${latestTag} — restarting...`);
+    run('pm2 restart smartworkforce-kiosk --update-env');
+  } catch (err) {
+    console.error('[updater] Error:', err.message);
+  }
+}
+
+function start() {
+  console.log(`[updater] Started — checking for new releases every ${CHECK_INTERVAL_MS / 1000}s`);
+  setTimeout(() => {
+    checkAndUpdate();
+    setInterval(checkAndUpdate, CHECK_INTERVAL_MS);
+  }, 30_000);
+}
+
+module.exports = { start };
