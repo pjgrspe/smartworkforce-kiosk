@@ -184,29 +184,24 @@ export default function Kiosk() {
 
   const setPhaseSync = (p) => { phaseRef.current = p; setPhase(p) }
 
-  // On startup: if no tenant code saved, try to auto-fetch it from the kiosk-service
-  // config endpoint. This skips the manual setup screen on branch PCs.
-  // Falls back to the setup screen if the endpoint isn't available (e.g. central server).
+  // On startup: always fetch /api/kiosk/config for the runtime version.
+  // Also auto-fills tenant code on branch PCs that haven't been set up yet.
   useEffect(() => {
     const current = localStorage.getItem('kiosk_tenant')
     const normalized = normalizeTenantCode(current)
-    if (normalized) {
-      // Auto-upgrade legacy tenant codes saved in browser storage.
-      if (normalized !== current) {
-        localStorage.setItem('kiosk_tenant', normalized)
-        setTenantCode(normalized)
-      }
-      return
+    if (normalized && normalized !== current) {
+      localStorage.setItem('kiosk_tenant', normalized)
+      setTenantCode(normalized)
     }
-    // No saved code — try kiosk-service config endpoint
     fetch('/api/kiosk/config')
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data?.tenantCode) {
+        if (!data) return
+        if (data.version) setRuntimeVersion(data.version)
+        if (data.tenantCode && !normalized) {
           localStorage.setItem('kiosk_tenant', data.tenantCode)
           setTenantCode(data.tenantCode)
         }
-        if (data?.version) setRuntimeVersion(data.version)
       })
       .catch(() => {})
   }, [])
