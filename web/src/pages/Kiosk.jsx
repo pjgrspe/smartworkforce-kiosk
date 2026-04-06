@@ -619,6 +619,7 @@ export default function Kiosk() {
             <span className={`w-2 h-2 rounded-full ${['running','confirmed'].includes(phase) ? 'bg-signal-success animate-pulse' : 'bg-signal-warning'}`} />
             <span className="text-xs text-navy-300">{statusLabels[phase] || phase}</span>
           </div>
+          <span className="text-2xs text-navy-600 font-mono select-none">v{__APP_VERSION__}</span>
           <ThemeToggle />
         </div>
         <Clock />

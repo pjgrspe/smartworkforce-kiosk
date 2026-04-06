@@ -1,9 +1,18 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
+import { execSync } from 'child_process'
+
+let version = 'dev'
+try {
+  version = execSync('git describe --tags --abbrev=0', { encoding: 'utf8', cwd: '../kiosk-service' }).trim()
+} catch (_) {}
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(version),
+  },
   plugins: [react()],
   build: {
     chunkSizeWarningLimit: 700,
