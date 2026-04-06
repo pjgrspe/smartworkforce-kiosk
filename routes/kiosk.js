@@ -36,6 +36,13 @@ function punchSequenceError(last, next) {
   return `Cannot record ${next} after ${last || 'no punch today'}.`;
 }
 
+// POST /api/kiosk/sync — manually trigger an immediate employee cache pull from central
+router.post('/sync', async (req, res) => {
+  const result = await sync.forcePull();
+  const lastSync = db.getMeta('last_employee_sync');
+  return res.json({ ...result, lastSync });
+});
+
 // GET /api/kiosk/config — returns the tenant code baked into this kiosk's .env
 // The browser uses this to auto-configure and skip the manual setup screen.
 router.get('/config', (req, res) => {

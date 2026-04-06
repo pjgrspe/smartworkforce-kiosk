@@ -135,4 +135,10 @@ function start() {
   console.log(`[sync] Started — push every ${SYNC_INTERVAL_MS / 1000}s, pull encodings every ${ENCODING_REFRESH_MS / 1000}s`);
 }
 
-module.exports = { start, isOnline, onStatusChange };
+async function forcePull() {
+  await heartbeat();
+  if (_isOnline) await pullEmployees();
+  return { online: _isOnline };
+}
+
+module.exports = { start, isOnline, onStatusChange, forcePull };
