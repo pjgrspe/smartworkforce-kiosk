@@ -171,9 +171,11 @@ function insertRecentPunch({ id, employeeId, firstName, lastName, employeeCode, 
 }
 
 function getRecentPunches(limit = 15) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
   return getDb().prepare(
-    'SELECT * FROM recent_punches ORDER BY timestamp DESC LIMIT ?',
-  ).all(limit).map(row => ({
+    'SELECT * FROM recent_punches WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?',
+  ).all(todayStart.toISOString(), limit).map(row => ({
     _id: row.id,
     id: row.id,
     type: row.type,
