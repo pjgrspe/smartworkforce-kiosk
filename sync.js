@@ -58,7 +58,18 @@ async function pushPunches() {
       if (res.ok) {
         db.markPunchSynced(punch.id);
         setOnline(true);
+      } else if (res.status === 409) {
+        // PUNCH_SEQUENCE_ERROR: server already recorded this punch (crash mid-request).
+        // Mark as synced so it stops blocking the queue.
+        console.warn(`[sync] Punch ${punch.id} (${punch.type}) returned 409 — already on server, marking synced`);
+        db.markPunchSynced(punch.id);
+        setOnline(true);
+      } else if (res.status >= 400 && res.status < 500) {
+        // Permanent client error (bad employeeId, invalid type, etc.) — retrying won't help.
+        console.warn(`[sync] Punch ${punch.id} failed permanently with ${res.status}, skipping`);
+        db.markPunchSynced(punch.id);
       } else {
+        // Transient server/network error — retry later
         db.incrementPunchRetry(punch.id);
       }
     } catch (_err) {

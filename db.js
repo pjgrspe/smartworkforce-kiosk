@@ -145,7 +145,7 @@ function enqueuePunch({ id, employeeId, type, punchedAt, confidence }) {
 
 function getPendingPunches(limit = 50) {
   return getDb().prepare(
-    'SELECT * FROM punch_queue WHERE synced = 0 AND retry_count < 10 ORDER BY created_at ASC LIMIT ?',
+    'SELECT * FROM punch_queue WHERE synced = 0 AND retry_count < 20 ORDER BY created_at ASC LIMIT ?',
   ).all(limit);
 }
 
