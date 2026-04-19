@@ -162,7 +162,7 @@ Write-Host ""
 Write-Host "Configuration" -ForegroundColor Yellow
 Write-Host ""
 
-$centralUrl = "https://abg-hrd.dewebnetsolution.com"
+$centralUrl = "https://spcf-hrd.dewebnetsolution.com"
 Write-Host "  Checking server connection..." -ForegroundColor DarkGray
 try {
     Invoke-WebRequest -Uri "$centralUrl/api/health" -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop | Out-Null
