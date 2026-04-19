@@ -182,7 +182,7 @@ if ($isUpdate) {
 
 $tenantCode = ""
 while ([string]::IsNullOrWhiteSpace($tenantCode)) {
-    $raw = Read-Host "  Tenant / company code (e.g. ABG)"
+    $raw = Read-Host "  Tenant / company code (e.g. SPCF)"
     if ([string]::IsNullOrWhiteSpace($raw)) { Write-Host "  Tenant code is required." -ForegroundColor Red; continue }
     $raw = $raw.ToUpper().Trim()
     Write-Host "  Verifying company code with server..." -ForegroundColor DarkGray
