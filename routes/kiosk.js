@@ -54,7 +54,8 @@ router.post('/sync', async (req, res) => {
 router.get('/config', (req, res) => {
   const tenantCode = (process.env.TENANT_CODE || '').toUpperCase().trim();
   if (!tenantCode) return res.status(404).json({ error: 'TENANT_CODE not set in .env' });
-  return res.json({ tenantCode, version: _kioskVersion });
+  const companyName = (process.env.COMPANY_NAME || '').trim() || null;
+  return res.json({ tenantCode, version: _kioskVersion, companyName });
 });
 
 // GET /api/kiosk/employees?tenant=CODE
