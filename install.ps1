@@ -37,8 +37,9 @@ Write-Host ""
 
 # -- 1. Check / install Node.js ------------------------------------------------
 Write-Host "Checking Node.js..." -ForegroundColor Yellow
-$nodeVersion = node --version 2>$null
-$nodeMissing = $LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($nodeVersion)
+$nodeVersion = $null
+try { $nodeVersion = node --version 2>$null } catch {}
+$nodeMissing = [string]::IsNullOrWhiteSpace($nodeVersion)
 if (-not $nodeMissing) {
     $nodeMajor = [int]($nodeVersion -replace 'v(\d+).*','$1')
     if ($nodeMajor -lt 18 -or $nodeMajor % 2 -eq 1) { $nodeMissing = $true }
@@ -60,8 +61,9 @@ if ($nodeMissing) {
 # -- 2. Check / install Git ----------------------------------------------------
 Write-Host ""
 Write-Host "Checking Git..." -ForegroundColor Yellow
-$gitVersion = git --version 2>$null
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($gitVersion)) {
+$gitVersion = $null
+try { $gitVersion = git --version 2>$null } catch {}
+if ([string]::IsNullOrWhiteSpace($gitVersion)) {
     Write-Host "  Git not found. Installing..." -ForegroundColor Yellow
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         winget install --id Git.Git -e --silent --accept-package-agreements --accept-source-agreements
