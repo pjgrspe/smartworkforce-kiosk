@@ -82,6 +82,17 @@ async function pushPunches() {
   broadcast({ type: 'SYNC_STATUS', online: _isOnline, pending: db.pendingCount() });
 }
 
+// ── Pull tenant branding from central ────────────────────────────────────────
+
+async function pullTenantInfo() {
+  try {
+    const res = await fetch(`${CENTRAL_URL}/api/kiosk/config?tenant=${TENANT_CODE}`, { timeout: 8000 });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.companyName) db.setMeta('company_name', data.companyName);
+  } catch (_) {}
+}
+
 // ── Pull latest employee / face-encoding data from central ───────────────────
 
 async function pullEmployees() {
@@ -127,6 +138,7 @@ function start() {
   // Initial run
   heartbeat().then(() => {
     if (_isOnline) {
+      pullTenantInfo();
       pullEmployees();
       pushPunches();
     }
