@@ -19,6 +19,8 @@ $REPO_OWNER  = "pjgrspe"
 $REPO_NAME   = "smartworkforce-kiosk"
 $REPO_URL    = "https://github.com/$REPO_OWNER/$REPO_NAME.git"
 $INSTALL_DIR = "C:\SmartWorkforce"
+$BRANCH      = "main"
+$TAG_PREFIX  = "abg-"
 $isUpdate    = Test-Path (Join-Path $INSTALL_DIR ".git")
 $success     = $false
 
@@ -112,7 +114,7 @@ if ($isUpdate) {
     # tags, so the actual git tag list is always more up to date.
     git fetch --tags --quiet
     $ErrorActionPreference = "Continue"
-    $latestTagFromGit = git tag --sort=-version:refname 2>$null | Select-Object -First 1
+    $latestTagFromGit = git tag --sort=-version:refname 2>$null | Where-Object { $_ -match "^$TAG_PREFIX" } | Select-Object -First 1
     $ErrorActionPreference = "Stop"
     if ($latestTagFromGit) { $latestTag = $latestTagFromGit }
 
@@ -124,8 +126,8 @@ if ($isUpdate) {
 
     if ($currentTag -eq $latestTag) {
         Write-Host "  Already on $latestTag - pulling latest build..." -ForegroundColor Green
-        git checkout main
-        git pull origin main
+        git checkout $BRANCH
+        git pull origin $BRANCH
         git checkout $latestTag
     } else {
         Write-Host ""
@@ -136,20 +138,20 @@ if ($isUpdate) {
             $releaseNotes -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
             Write-Host ""
         }
-        git checkout main
-        git pull origin main
+        git checkout $BRANCH
+        git pull origin $BRANCH
         git checkout $latestTag
         Write-Host "  Code updated to $latestTag." -ForegroundColor Green
     }
 
 } else {
     if (-not $latestTag) {
-        # No API + no existing install, clone main and get latest tag after
+        # No API + no existing install, clone branch and get latest tag after
         Write-Host "Downloading kiosk software to $INSTALL_DIR..." -ForegroundColor Yellow
         if (Test-Path $INSTALL_DIR) { Remove-Item $INSTALL_DIR -Recurse -Force }
-        git clone $REPO_URL $INSTALL_DIR
+        git clone --branch $BRANCH $REPO_URL $INSTALL_DIR
         Set-Location $INSTALL_DIR
-        $latestTag = git tag --sort=-version:refname 2>$null | Select-Object -First 1
+        $latestTag = git tag --sort=-version:refname 2>$null | Where-Object { $_ -match "^$TAG_PREFIX" } | Select-Object -First 1
     } else {
         Write-Host "Downloading kiosk software ($latestTag) to $INSTALL_DIR..." -ForegroundColor Yellow
         if (Test-Path $INSTALL_DIR) { Remove-Item $INSTALL_DIR -Recurse -Force }
