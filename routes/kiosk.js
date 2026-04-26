@@ -75,6 +75,14 @@ router.get('/employees', (req, res) => {
   return res.json({ data: employees, offline, lastSync });
 });
 
+// GET /api/kiosk/last-punch?tenant=CODE&employeeId=ID
+router.get('/last-punch', (req, res) => {
+  const { employeeId } = req.query;
+  if (!employeeId) return res.status(400).json({ error: 'employeeId required' });
+  const info = db.getLastPunchInfoToday(employeeId);
+  return res.json(info);
+});
+
 // GET /api/kiosk/recent?tenant=CODE
 router.get('/recent', (req, res) => {
   const punches = db.getRecentPunches(15);

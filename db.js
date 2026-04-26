@@ -205,6 +205,18 @@ function getLastPunchToday(employeeId) {
   return row ? row.type : null;
 }
 
+function getLastPunchInfoToday(employeeId) {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const row = getDb().prepare(
+    `SELECT type, timestamp FROM recent_punches
+     WHERE employee_id = ? AND timestamp >= ?
+     ORDER BY timestamp DESC LIMIT 1`,
+  ).get(employeeId, todayStart.toISOString());
+  if (!row) return { lastType: null, lastTimestamp: null };
+  return { lastType: row.type, lastTimestamp: row.timestamp };
+}
+
 function getMeta(key) {
   const row = getDb().prepare('SELECT value FROM sync_meta WHERE key = ?').get(key);
   return row ? row.value : null;
@@ -230,6 +242,7 @@ module.exports = {
   insertRecentPunch,
   getRecentPunches,
   getLastPunchToday,
+  getLastPunchInfoToday,
   getMeta,
   setMeta,
 };
