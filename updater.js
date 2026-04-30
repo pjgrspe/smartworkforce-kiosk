@@ -7,7 +7,13 @@
 const { spawnSync } = require('child_process');
 
 const CHECK_INTERVAL_MS = Number(process.env.UPDATE_CHECK_INTERVAL_MS) || 5 * 60 * 1000;
-const TAG_PREFIX        = (process.env.TAG_PREFIX || '').trim(); // e.g. "spcf-v" or "abg-v"
+// TAG_PREFIX can be set explicitly, or falls back to lowercase TENANT_CODE + "-v" (e.g. ABG → abg-v)
+const TAG_PREFIX = (
+  (process.env.TAG_PREFIX || '').trim() ||
+  ((process.env.TENANT_CODE || '').trim().toLowerCase()
+    ? (process.env.TENANT_CODE).trim().toLowerCase() + '-v'
+    : '')
+);
 
 function run(cmd) {
   return spawnSync(cmd, {
@@ -52,7 +58,11 @@ function checkAndUpdate() {
 }
 
 function start() {
-  console.log(`[updater] Started — checking for new releases every ${CHECK_INTERVAL_MS / 1000}s`);
+  if (!TAG_PREFIX) {
+    console.warn('[updater] WARNING: TAG_PREFIX not set in .env — updater disabled to prevent cross-client tag pollution. Set TAG_PREFIX=abg-v or TAG_PREFIX=spcf-v.');
+    return;
+  }
+  console.log(`[updater] Started — tag prefix: ${TAG_PREFIX}, checking every ${CHECK_INTERVAL_MS / 1000}s`);
   setTimeout(() => {
     checkAndUpdate();
     setInterval(checkAndUpdate, CHECK_INTERVAL_MS);
