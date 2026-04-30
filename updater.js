@@ -7,6 +7,7 @@
 const { spawnSync } = require('child_process');
 
 const CHECK_INTERVAL_MS = Number(process.env.UPDATE_CHECK_INTERVAL_MS) || 5 * 60 * 1000;
+const TAG_PREFIX        = (process.env.TAG_PREFIX || '').trim(); // e.g. "spcf-v" or "abg-v"
 
 function run(cmd) {
   return spawnSync(cmd, {
@@ -21,7 +22,10 @@ function checkAndUpdate() {
   try {
     if (run('git fetch --tags --quiet').status !== 0) return;
 
-    const latestTag = run('git tag --sort=-version:refname').stdout.trim().split('\n')[0];
+    const allTags = run('git tag --sort=-version:refname').stdout.trim().split('\n').filter(Boolean);
+    // Only consider tags matching this kiosk's prefix (e.g. spcf-v* or abg-v*)
+    const tags = TAG_PREFIX ? allTags.filter(t => t.startsWith(TAG_PREFIX)) : allTags;
+    const latestTag = tags[0];
     if (!latestTag) return;
 
     // Compare commit hashes — avoids false positives when on main/detached HEAD
