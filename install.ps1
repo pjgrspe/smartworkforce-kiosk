@@ -79,21 +79,29 @@ if ([string]::IsNullOrWhiteSpace($gitVersion)) {
     Write-Host "  Git OK: $gitVersion" -ForegroundColor Green
 }
 
-# -- 3. Fetch latest release tag from GitHub -----------------------------------
+# -- 3. Fetch latest release tag from git (always use git tags, not GitHub Releases API)
 Write-Host ""
 Write-Host "Checking latest release..." -ForegroundColor Yellow
 $latestTag    = $null
 $releaseNotes = $null
+# We push plain git tags (not GitHub Releases), so skip the API and read tags directly.
+# Clone branch into a temp dir, fetch tags, filter by prefix, then use that as the install tag.
 try {
-    $apiUrl   = "https://api.github.com/repos/$REPO_OWNER/$REPO_NAME/releases/latest"
-    $headers  = @{ "User-Agent" = "SmartWorkforce-Installer" }
-    $release  = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 10
-    $latestTag    = $release.tag_name
-    $releaseNotes = $release.body
-    Write-Host "  Latest release: $latestTag" -ForegroundColor Green
+    $tmpDir = Join-Path $env:TEMP "sw-kiosk-tagcheck"
+    if (Test-Path $tmpDir) { Remove-Item $tmpDir -Recurse -Force }
+    git clone --depth 1 --branch $BRANCH $REPO_URL $tmpDir --quiet 2>$null
+    Push-Location $tmpDir
+    git fetch --tags --quiet 2>$null
+    $latestTag = git tag --sort=-version:refname 2>$null | Where-Object { $_ -match "^$TAG_PREFIX" } | Select-Object -First 1
+    Pop-Location
+    Remove-Item $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    if ($latestTag) {
+        Write-Host "  Latest release: $latestTag" -ForegroundColor Green
+    } else {
+        Write-Host "  No $TAG_PREFIX* tags found. Will install branch tip." -ForegroundColor DarkYellow
+    }
 } catch {
-    # Fall back to latest git tag if API unavailable (e.g. private repo or rate limit)
-    Write-Host "  Could not reach GitHub API, will use latest git tag." -ForegroundColor DarkYellow
+    Write-Host "  Could not determine latest tag, will install branch tip." -ForegroundColor DarkYellow
 }
 
 # -- 4. Clone or update --------------------------------------------------------
