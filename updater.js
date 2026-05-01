@@ -43,7 +43,8 @@ function checkForUpdate() {
       console.log(`[updater] Already on latest release (${latestTag})`);
     } else {
       _availableUpdate = { tag: latestTag, sha: latestTagSha };
-      console.log(`[updater] Update available: ${latestTag}`);
+      console.log(`[updater] Update available: ${latestTag} — applying...`);
+      applyUpdate();
     }
   } catch (err) {
     console.error('[updater] Check error:', err.message);
