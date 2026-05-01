@@ -83,6 +83,8 @@ function upsertEmployees(employees) {
       updated_at      = excluded.updated_at
   `);
 
+  const incomingIds = employees.map(e => e.id || e._id);
+
   db.exec('BEGIN');
   try {
     for (const e of employees) {
@@ -95,6 +97,11 @@ function upsertEmployees(employees) {
         JSON.stringify(e.faceData?.faceApiDescriptors || []),
         e.faceData?.enrollmentDate || null,
       );
+    }
+    // Remove employees deleted from the server
+    if (incomingIds.length) {
+      const placeholders = incomingIds.map(() => '?').join(',');
+      db.prepare(`DELETE FROM employee_cache WHERE id NOT IN (${placeholders})`).run(...incomingIds);
     }
     db.exec('COMMIT');
   } catch (err) {

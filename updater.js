@@ -15,58 +15,67 @@ const TAG_PREFIX = (
     : '')
 );
 
+let _availableUpdate = null; // { tag, sha } when a newer tag exists, else null
+
 function run(cmd) {
   return spawnSync(cmd, {
     shell: true,
     encoding: 'utf8',
     cwd: __dirname,
-    windowsHide: true,   // prevents CMD windows popping up on Windows
+    windowsHide: true,
   });
 }
 
-function checkAndUpdate() {
+function checkForUpdate() {
   try {
     if (run('git fetch --tags --quiet').status !== 0) return;
 
     const allTags = run('git tag --sort=-version:refname').stdout.trim().split('\n').filter(Boolean);
-    // Only consider tags matching this kiosk's prefix (e.g. spcf-v* or abg-v*)
     const tags = TAG_PREFIX ? allTags.filter(t => t.startsWith(TAG_PREFIX)) : allTags;
     const latestTag = tags[0];
     if (!latestTag) return;
 
-    // Compare commit hashes — avoids false positives when on main/detached HEAD
     const headSha      = run('git rev-parse HEAD').stdout.trim();
     const latestTagSha = run(`git rev-parse "${latestTag}^{}"`).stdout.trim();
 
     if (headSha === latestTagSha) {
+      _availableUpdate = null;
       console.log(`[updater] Already on latest release (${latestTag})`);
-      return;
+    } else {
+      _availableUpdate = { tag: latestTag, sha: latestTagSha };
+      console.log(`[updater] Update available: ${latestTag}`);
     }
-
-    console.log(`[updater] New release detected: ${latestTag} — updating...`);
-
-    if (run(`git checkout "${latestTag}"`).status !== 0) {
-      console.error('[updater] git checkout failed');
-      return;
-    }
-
-    console.log(`[updater] Updated to ${latestTag} — restarting...`);
-    run('pm2 restart smartworkforce-kiosk --update-env');
   } catch (err) {
-    console.error('[updater] Error:', err.message);
+    console.error('[updater] Check error:', err.message);
   }
 }
 
+function applyUpdate() {
+  if (!_availableUpdate) return { ok: false, error: 'No update available' };
+  const { tag } = _availableUpdate;
+  try {
+    if (run(`git checkout "${tag}"`).status !== 0) return { ok: false, error: 'git checkout failed' };
+    _availableUpdate = null;
+    console.log(`[updater] Updated to ${tag} — restarting...`);
+    run('pm2 restart smartworkforce-kiosk --update-env');
+    return { ok: true, tag };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+function getAvailableUpdate() { return _availableUpdate; }
+
 function start() {
   if (!TAG_PREFIX) {
-    console.warn('[updater] WARNING: TAG_PREFIX not set in .env — updater disabled to prevent cross-client tag pollution. Set TAG_PREFIX=abg-v or TAG_PREFIX=spcf-v.');
+    console.warn('[updater] WARNING: TAG_PREFIX not set in .env — updater disabled. Set TAG_PREFIX=abg-v or TAG_PREFIX=spcf-v.');
     return;
   }
   console.log(`[updater] Started — tag prefix: ${TAG_PREFIX}, checking every ${CHECK_INTERVAL_MS / 1000}s`);
   setTimeout(() => {
-    checkAndUpdate();
-    setInterval(checkAndUpdate, CHECK_INTERVAL_MS);
+    checkForUpdate();
+    setInterval(checkForUpdate, CHECK_INTERVAL_MS);
   }, 30_000);
 }
 
-module.exports = { start };
+module.exports = { start, getAvailableUpdate, applyUpdate };

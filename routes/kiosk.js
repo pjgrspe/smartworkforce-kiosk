@@ -8,8 +8,9 @@ const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const fs   = require('fs');
 const path = require('path');
-const db   = require('../db');
-const sync = require('../sync');
+const db      = require('../db');
+const sync    = require('../sync');
+const updater = require('../updater');
 
 const router = express.Router();
 
@@ -41,6 +42,19 @@ function punchSequenceError(last, next) {
   if (next === 'BREAK_OUT' && last !== 'BREAK_IN')  return 'Not on break.';
   return `Cannot record ${next} after ${last || 'no punch today'}.`;
 }
+
+// GET /api/kiosk/update-status — check if a newer release tag is available
+router.get('/update-status', (req, res) => {
+  const available = updater.getAvailableUpdate();
+  return res.json({ currentVersion: _kioskVersion, availableUpdate: available });
+});
+
+// POST /api/kiosk/update — apply the available update (git checkout + pm2 restart)
+router.post('/update', (req, res) => {
+  const result = updater.applyUpdate();
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  return res.json({ ok: true, tag: result.tag });
+});
 
 // POST /api/kiosk/sync — manually trigger an immediate employee cache pull from central
 router.post('/sync', async (req, res) => {
