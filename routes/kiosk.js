@@ -23,13 +23,14 @@ const MIN_CONFIDENCE = 0.5;
 const VALID_NEXT = {
   null:        ['IN'],
   'IN':        ['OUT', 'BREAK_IN'],
-  'OUT':       ['IN'],
+  'OUT':       [],           // only one IN/OUT pair allowed per day
   'BREAK_IN':  ['BREAK_OUT'],
   'BREAK_OUT': ['OUT', 'BREAK_IN'],
 };
 
 function punchSequenceError(last, next) {
   if ((VALID_NEXT[last] ?? VALID_NEXT[null]).includes(next)) return null;
+  if (next === 'IN'        && last === 'OUT')       return 'Already completed time in/out for today.';
   if (next === 'IN'        && last === 'IN')        return 'Already clocked in. Clock out first.';
   if (next === 'IN'        && last === 'BREAK_IN')  return 'Break in progress. End your break first.';
   if (next === 'IN'        && last === 'BREAK_OUT') return 'Already clocked in. Clock out first.';
